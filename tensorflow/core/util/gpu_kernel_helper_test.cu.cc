@@ -154,7 +154,9 @@ class GpuLaunchConfigTest : public ::testing::Test {
 
   void copyToHost() {
 #if TENSORFLOW_USE_ROCM
-    hipMemcpy(hostbuf, outbuf, sizeof(int) * bufsize, hipMemcpyDeviceToHost);
+    hipError_t err = hipMemcpy(hostbuf, outbuf, sizeof(int) * bufsize,
+                               hipMemcpyDeviceToHost);
+    ASSERT_EQ(cudaSuccess, err) << cudaGetErrorString(err);
 #endif
   }
   virtual void SetUp() {
@@ -162,15 +164,15 @@ class GpuLaunchConfigTest : public ::testing::Test {
     cudaError_t err = cudaMallocManaged(&outbuf, sizeof(int) * bufsize);
     outbuf_host = outbuf;
 #else
-    cudaError_t err = hipMalloc(&outbuf, sizeof(int) * bufsize);
+    hipError_t err = hipMalloc(&outbuf, sizeof(int) * bufsize);
     outbuf_host = hostbuf;
 #endif
     ASSERT_EQ(cudaSuccess, err) << cudaGetErrorString(err);
   }
 
   virtual void TearDown() {
-    gpuDeviceSynchronize();
-    gpuFree(outbuf);
+    ASSERT_EQ(gpuDeviceSynchronize(), cudaSuccess);
+    ASSERT_EQ(gpuFree(outbuf), cudaSuccess);
     outbuf = nullptr;
   }
 };
@@ -310,6 +312,43 @@ TEST_F(GpuLaunchConfigTest, GetGpu3DLaunchConfig) {
 #undef TEST_LAUNCH_PARAMETER
 }
 
+__global__ void TestGpuAtomicAddDouble(double* ptr, double value) {
+  GpuAtomicAdd(ptr, value);
+}
+
+TEST_F(GpuLaunchConfigTest, GpuAtomicAddDoubleTest) {
+  double* d_ptr;
+#if GOOGLE_CUDA
+  cudaError_t err = cudaMallocManaged(&d_ptr, sizeof(double));
+#else
+  hipError_t err = hipMalloc(&d_ptr, sizeof(double));
+#endif
+  ASSERT_EQ(cudaSuccess, err) << cudaGetErrorString(err);
+
+  double init_val = 10.5;
+#if GOOGLE_CUDA
+  *d_ptr = init_val;
+#else
+  ASSERT_EQ(hipMemcpy(d_ptr, &init_val, sizeof(double), hipMemcpyHostToDevice),
+            cudaSuccess);
+#endif
+
+  TF_EXPECT_OK(GpuLaunchKernel(TestGpuAtomicAddDouble, 1, 1, 0, d.stream(),
+                               d_ptr, 5.25));
+  CUDA_EXPECT_SUCCESS
+
+  double final_val;
+#if GOOGLE_CUDA
+  final_val = *d_ptr;
+#else
+  ASSERT_EQ(hipMemcpy(&final_val, d_ptr, sizeof(double), hipMemcpyDeviceToHost),
+            cudaSuccess);
+#endif
+  EXPECT_DOUBLE_EQ(final_val, 15.75);
+
+  ASSERT_EQ(gpuFree(d_ptr), cudaSuccess);
+}
+
 TEST(CudaDeviceFunctionsTest, ShuffleGetSrcLane) {
   unsigned* failure_count;
 #if GOOGLE_CUDA
@@ -322,7 +361,7 @@ TEST(CudaDeviceFunctionsTest, ShuffleGetSrcLane) {
                                nullptr, failure_count));
   ASSERT_EQ(gpuDeviceSynchronize(), cudaSuccess);
   ASSERT_EQ(*failure_count, 0);
-  gpuFree(failure_count);
+  ASSERT_EQ(gpuFree(failure_count), cudaSuccess);
 }
 
 }  // namespace tensorflow

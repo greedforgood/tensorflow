@@ -17,6 +17,8 @@ limitations under the License.
 
 #define EIGEN_USE_GPU
 
+#include <type_traits>
+
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -25,6 +27,7 @@ limitations under the License.
 #include "tensorflow/core/kernels/gpu_prim.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/types.h"
+#include "tensorflow/core/util/determinism.h"
 #include "tensorflow/core/util/gpu_kernel_helper.h"
 
 namespace tensorflow {
@@ -35,18 +38,28 @@ namespace functor {
 
 template <typename Tidx, typename T>
 struct BincountFunctor<GPUDevice, Tidx, T, false> {
-  static Status Compute(OpKernelContext* context,
-                        const typename TTypes<Tidx, 1>::ConstTensor& arr,
-                        const typename TTypes<T, 1>::ConstTensor& weights,
-                        typename TTypes<T, 1>::Tensor& output,
-                        const Tidx num_bins) {
+  static absl::Status Compute(OpKernelContext* context,
+                              const typename TTypes<Tidx, 1>::ConstTensor& arr,
+                              const typename TTypes<T, 1>::ConstTensor& weights,
+                              typename TTypes<T, 1>::Tensor& output,
+                              const Tidx num_bins) {
     if (weights.size() != 0) {
-      return errors::InvalidArgument(
-          "Weights should not be passed as it should be "
-          "handled by unsorted_segment_sum");
+      return absl::UnimplementedError(
+          "Weights are not yet supported by the GPU implementation of Bincount."
+          " Please use unsorted_segment_sum instead or put Bincount inside"
+          " tf.function(jit_compile=True).");
     }
     if (output.size() == 0) {
-      return Status::OK();
+      return absl::OkStatus();
+    }
+    if (tensorflow::OpDeterminismRequired()) {
+      // TODO(reedwm): Is this really nondeterministic?
+      // DeviceHistogram::HistogramEven is called, and it is unclear
+      // if it is deterministic on floating-point inputs.
+      // See https://github.com/NVIDIA/cub/issues/471#issuecomment-1194682443.
+      return absl::UnimplementedError(
+          "Determinism is not yet supported in GPU implementation of "
+          "Bincount.");
     }
     // In case weight.size() == 0, use CUB
     size_t temp_storage_bytes = 0;
@@ -77,10 +90,11 @@ struct BincountFunctor<GPUDevice, Tidx, T, false> {
     }
     Tensor temp_storage;
     TF_RETURN_IF_ERROR(context->allocate_temp(
-        DataTypeToEnum<int8>::value,
-        TensorShape({static_cast<int64>(temp_storage_bytes)}), &temp_storage));
+        DataTypeToEnum<int8_t>::value,
+        TensorShape({static_cast<int64_t>(temp_storage_bytes)}),
+        &temp_storage));
 
-    void* d_temp_storage = temp_storage.flat<int8>().data();
+    void* d_temp_storage = temp_storage.flat<int8_t>().data();
     // The second HistogramEven is to actual run with d_temp_storage
     // allocated with temp_storage_bytes.
     err = gpuprim::DeviceHistogram::HistogramEven(
@@ -97,7 +111,7 @@ struct BincountFunctor<GPUDevice, Tidx, T, false> {
       return errors::Internal(
           "Could not launch HistogramEven: ", GpuGetErrorString(err), ".");
     }
-    return Status::OK();
+    return absl::OkStatus();
   }
 };
 
@@ -106,7 +120,8 @@ __global__ void BincountReduceKernel(const Tidx* in, T* out, const int nthreads,
                                      const Tidx num_bins) {
   GPU_1D_KERNEL_LOOP(index, nthreads) {
     Tidx bin = ldg(in + index);
-    if (bin < num_bins) {
+    if (static_cast<std::make_unsigned_t<Tidx>>(bin) <
+        static_cast<std::make_unsigned_t<Tidx>>(num_bins)) {
       out[bin] = T(1);
     }
   }
@@ -114,11 +129,11 @@ __global__ void BincountReduceKernel(const Tidx* in, T* out, const int nthreads,
 
 template <typename Tidx, typename T>
 struct BincountFunctor<GPUDevice, Tidx, T, true> {
-  static Status Compute(OpKernelContext* context,
-                        const typename TTypes<Tidx, 1>::ConstTensor& arr,
-                        const typename TTypes<T, 1>::ConstTensor& weights,
-                        typename TTypes<T, 1>::Tensor& output,
-                        const Tidx num_bins) {
+  static absl::Status Compute(OpKernelContext* context,
+                              const typename TTypes<Tidx, 1>::ConstTensor& arr,
+                              const typename TTypes<T, 1>::ConstTensor& weights,
+                              typename TTypes<T, 1>::Tensor& output,
+                              const Tidx num_bins) {
     const int nthreads = arr.dimension(0);
 
     auto d = context->eigen_gpu_device();
@@ -137,7 +152,8 @@ __global__ void BincountColReduceKernel(const Tidx* in, const T* weights,
   const int nthreads = num_rows * num_cols;
   GPU_1D_KERNEL_LOOP(index, nthreads) {
     Tidx bin = ldg(in + index);
-    if (bin < num_bins) {
+    if (static_cast<std::make_unsigned_t<Tidx>>(bin) <
+        static_cast<std::make_unsigned_t<Tidx>>(num_bins)) {
       int row = index / num_cols;
       int offset = row * num_bins + bin;
       if (binary_count) {
@@ -167,7 +183,8 @@ __global__ void BincountColReduceSharedKernel(const Tidx* in, const T* weights,
   const int nthreads = num_rows * num_cols;
   GPU_1D_KERNEL_LOOP(index, nthreads) {
     Tidx bin = ldg(in + index);
-    if (bin < num_bins) {
+    if (static_cast<std::make_unsigned_t<Tidx>>(bin) <
+        static_cast<std::make_unsigned_t<Tidx>>(num_bins)) {
       int row = index / num_cols;
       int offset = row * num_bins + bin;
       if (binary_count) {
@@ -194,11 +211,11 @@ __global__ void BincountColReduceSharedKernel(const Tidx* in, const T* weights,
 
 template <typename Tidx, typename T, bool binary_count>
 struct BincountReduceFunctor<GPUDevice, Tidx, T, binary_count> {
-  static Status Compute(OpKernelContext* context,
-                        const typename TTypes<Tidx, 2>::ConstTensor& in,
-                        const typename TTypes<T, 2>::ConstTensor& weights,
-                        typename TTypes<T, 2>::Tensor& out,
-                        const Tidx num_bins) {
+  static absl::Status Compute(OpKernelContext* context,
+                              const typename TTypes<Tidx, 2>::ConstTensor& in,
+                              const typename TTypes<T, 2>::ConstTensor& weights,
+                              typename TTypes<T, 2>::Tensor& out,
+                              const Tidx num_bins) {
     const int num_rows = in.dimension(0);
     const int num_cols = in.dimension(1);
 

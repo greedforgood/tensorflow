@@ -17,19 +17,17 @@ limitations under the License.
 
 namespace tensorflow {
 REGISTER9(BinaryOp, CPU, "GreaterEqual", functor::greater_equal, float,
-          Eigen::half, double, int32, int64, uint8, uint16, uint32, uint64);
-REGISTER3(BinaryOp, CPU, "GreaterEqual", functor::greater_equal, int8, int16,
-          bfloat16);
+          Eigen::half, double, int32_t, int64_t, uint8_t, uint16_t, uint32_t,
+          uint64_t);
+REGISTER3(BinaryOp, CPU, "GreaterEqual", functor::greater_equal, int8_t,
+          int16_t, bfloat16);
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #if !defined(MLIR_GENERATED_GPU_KERNELS_ENABLED)
 REGISTER9(BinaryOp, GPU, "GreaterEqual", functor::greater_equal, float,
           Eigen::half, double, int64, uint8, uint16, uint32, uint64, int8);
 REGISTER(BinaryOp, GPU, "GreaterEqual", functor::greater_equal, int16);
-#else
-// TODO(b/172804967): We do not generate unsigned kernels for GPU via mlir.
-REGISTER4(BinaryOp, GPU, "GreaterEqual", functor::greater_equal, uint8, uint16,
-          uint32, uint64);
 #endif
+REGISTER(BinaryOp, GPU, "GreaterEqual", functor::greater_equal, bfloat16);
 
 // A special GPU kernel for int32.
 // TODO(b/25387198): Also enable int32 in device memory. This kernel
@@ -39,8 +37,16 @@ REGISTER_KERNEL_BUILDER(Name("GreaterEqual")
                             .HostMemory("x")
                             .HostMemory("y")
                             .HostMemory("z")
-                            .TypeConstraint<int32>("T"),
-                        BinaryOp<CPUDevice, functor::greater_equal<int32>>);
+                            .TypeConstraint<int32_t>("T"),
+                        BinaryOp<CPUDevice, functor::greater_equal<int32_t>>);
 #endif
+
+REGISTER_KERNEL_BUILDER(Name("GreaterEqual")
+                            .Device(DEVICE_DEFAULT)
+                            .HostMemory("x")
+                            .HostMemory("y")
+                            .HostMemory("z")
+                            .TypeConstraint<int32_t>("T"),
+                        BinaryOp<CPUDevice, functor::greater_equal<int32_t>>);
 
 }  // namespace tensorflow

@@ -13,13 +13,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 #include <cstdint>
+#include <initializer_list>
 #include <vector>
 
 #include <gtest/gtest.h>
-#include "tensorflow/lite/interpreter.h"
-#include "tensorflow/lite/kernels/register.h"
+#include "tensorflow/lite/core/interpreter.h"
+#include "tensorflow/lite/core/kernels/register.h"
+#include "tensorflow/lite/core/model.h"
 #include "tensorflow/lite/kernels/test_util.h"
-#include "tensorflow/lite/model.h"
+#include "tensorflow/lite/schema/schema_generated.h"
 
 namespace tflite {
 namespace {
@@ -29,11 +31,13 @@ template <class InputType, class ShapeType = int32_t>
 class BroadcastToOpModel : public SingleOpModel {
  public:
   // BroadcastTo with dynamic shape.
-  BroadcastToOpModel(std::initializer_list<int> input_shape,
-                     std::initializer_list<int> shape_shape) {
-    input_ = AddInput({GetTensorType<InputType>(), input_shape});
+  BroadcastToOpModel(
+      std::initializer_list<int> input_shape,
+      std::initializer_list<int> shape_shape,
+      TensorType input_tensor_type = GetTensorType<InputType>()) {
+    input_ = AddInput({input_tensor_type, input_shape});
     shape_ = AddInput({GetTensorType<ShapeType>(), shape_shape});
-    output_ = AddOutput(GetTensorType<InputType>());
+    output_ = AddOutput(input_tensor_type);
     SetBuiltinOp(BuiltinOperator_BROADCAST_TO,
                  BuiltinOptions_BroadcastToOptions,
                  CreateBroadcastToOptions(builder_).Union());
@@ -41,13 +45,15 @@ class BroadcastToOpModel : public SingleOpModel {
   }
 
   // BroadcastTo with const shape.
-  BroadcastToOpModel(std::initializer_list<int> input_shape,
-                     std::initializer_list<int> shape_shape,
-                     std::initializer_list<ShapeType> shape_values) {
-    input_ = AddInput({GetTensorType<InputType>(), input_shape});
+  BroadcastToOpModel(
+      std::initializer_list<int> input_shape,
+      std::initializer_list<int> shape_shape,
+      std::initializer_list<ShapeType> shape_values,
+      TensorType input_tensor_type = GetTensorType<InputType>()) {
+    input_ = AddInput({input_tensor_type, input_shape});
     shape_ =
         AddConstInput(GetTensorType<ShapeType>(), shape_values, shape_shape);
-    output_ = AddOutput(GetTensorType<InputType>());
+    output_ = AddOutput(input_tensor_type);
     SetBuiltinOp(BuiltinOperator_BROADCAST_TO,
                  BuiltinOptions_BroadcastToOptions,
                  CreateBroadcastToOptions(builder_).Union());
@@ -79,22 +85,14 @@ class BroadcastToOpTest : public ::testing::Test {};
 using DataTypes = ::testing::Types<float, uint8_t, int8_t, int16_t, int32_t>;
 TYPED_TEST_SUITE(BroadcastToOpTest, DataTypes);
 
-#ifdef GTEST_HAS_DEATH_TEST
+#if GTEST_HAS_DEATH_TEST
 TYPED_TEST(BroadcastToOpTest, ShapeMustBe1D) {
   EXPECT_DEATH(
       BroadcastToOpModel<TypeParam>({2, 3, 4, 4}, {2, 2}, {2, 3, 4, 4}), "");
   // Non-constant Shape tensor.
   BroadcastToOpModel<TypeParam> m({2, 3, 4, 4}, {2, 2});
   m.SetShape({2, 3, 4, 4});
-  EXPECT_THAT(m.InvokeUnchecked(), kTfLiteError);
-}
-
-TYPED_TEST(BroadcastToOpTest, TooManyDimensions) {
-  EXPECT_DEATH(BroadcastToOpModel<TypeParam>({1, 2, 3, 4, 5, 6, 7, 8, 9}, {9},
-                                             {2, 2, 3, 4, 5, 6, 7, 8, 9}),
-               "BroadcastTo only supports 1-8D tensor.");
-  EXPECT_DEATH(BroadcastToOpModel<TypeParam>({1, 2, 3, 4, 5, 6, 7, 8, 9}, {9}),
-               "BroadcastTo only supports 1-8D tensor.");
+  EXPECT_THAT(m.Invoke(), kTfLiteError);
 }
 
 TYPED_TEST(BroadcastToOpTest, MismatchDimension) {
@@ -107,17 +105,17 @@ TYPED_TEST(BroadcastToOpTest, MismatchDimension) {
   // Non-constant Shape tensor.
   BroadcastToOpModel<TypeParam> m1({2, 4, 1, 2}, {4});
   m1.SetShape({2, 3, 4, 4});
-  EXPECT_THAT(m1.InvokeUnchecked(), kTfLiteError);
+  EXPECT_THAT(m1.Invoke(), kTfLiteError);
   BroadcastToOpModel<TypeParam> m2({2, 4, 1, 2}, {5});
   m2.SetShape({1, 2, 3, 4, 4});
-  EXPECT_THAT(m2.InvokeUnchecked(), kTfLiteError);
+  EXPECT_THAT(m2.Invoke(), kTfLiteError);
 }
 #endif
 
 TYPED_TEST(BroadcastToOpTest, BroadcastTo1DConstTest) {
   BroadcastToOpModel<TypeParam> m({1}, {1}, {4});
   m.SetInput({3});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({4}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 3, 3}));
 }
@@ -125,7 +123,7 @@ TYPED_TEST(BroadcastToOpTest, BroadcastTo1DConstTest) {
 TYPED_TEST(BroadcastToOpTest, BroadcastTo4DConstTest) {
   BroadcastToOpModel<TypeParam> m({1, 1, 1, 2}, {4}, {1, 1, 2, 2});
   m.SetInput({3, 4});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({1, 1, 2, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 4, 3, 4}));
 }
@@ -134,8 +132,18 @@ TYPED_TEST(BroadcastToOpTest, BroadcastTo8DConstTest) {
   BroadcastToOpModel<TypeParam> m({1, 1, 1, 1, 1, 1, 2, 1}, {8},
                                   {1, 1, 1, 1, 1, 1, 2, 2});
   m.SetInput({3, 4});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({1, 1, 1, 1, 1, 1, 2, 2}));
+  EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 4, 4}));
+}
+
+TYPED_TEST(BroadcastToOpTest, BroadcastTo9DConstTest) {
+  BroadcastToOpModel<TypeParam> m({1, 1, 1, 1, 1, 1, 1, 2, 1}, {9},
+                                  {1, 1, 1, 1, 1, 1, 1, 2, 2});
+  m.SetInput({3, 4});
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
+  EXPECT_THAT(m.GetOutputShape(),
+              ElementsAreArray({1, 1, 1, 1, 1, 1, 1, 2, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 4, 4}));
 }
 
@@ -143,7 +151,7 @@ TYPED_TEST(BroadcastToOpTest, BroadcastTo1DDynamicTest) {
   BroadcastToOpModel<TypeParam> m({1}, {1});
   m.SetInput({3});
   m.SetShape({4});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({4}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 3, 3}));
 }
@@ -152,7 +160,7 @@ TYPED_TEST(BroadcastToOpTest, BroadcastTo4DDynamicTest) {
   BroadcastToOpModel<TypeParam> m({1, 1, 1, 2}, {4});
   m.SetInput({3, 4});
   m.SetShape({1, 1, 2, 2});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({1, 1, 2, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 4, 3, 4}));
 }
@@ -161,15 +169,25 @@ TYPED_TEST(BroadcastToOpTest, BroadcastTo8DDynamicTest) {
   BroadcastToOpModel<TypeParam> m({1, 1, 1, 1, 1, 1, 2, 1}, {8});
   m.SetInput({3, 4});
   m.SetShape({1, 1, 1, 1, 1, 1, 2, 2});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({1, 1, 1, 1, 1, 1, 2, 2}));
+  EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 4, 4}));
+}
+
+TYPED_TEST(BroadcastToOpTest, BroadcastTo9DDynamicTest) {
+  BroadcastToOpModel<TypeParam> m({1, 1, 1, 1, 1, 1, 1, 2, 1}, {9});
+  m.SetInput({3, 4});
+  m.SetShape({1, 1, 1, 1, 1, 1, 1, 2, 2});
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
+  EXPECT_THAT(m.GetOutputShape(),
+              ElementsAreArray({1, 1, 1, 1, 1, 1, 1, 2, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 4, 4}));
 }
 
 TYPED_TEST(BroadcastToOpTest, ComplexBroadcast4DConstTest) {
   BroadcastToOpModel<TypeParam> m({1, 3, 1, 2}, {4}, {3, 3, 2, 2});
   m.SetInput({1, 2, 3, 4, 5, 6});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({3, 3, 2, 2}));
   EXPECT_THAT(
       m.GetOutput(),
@@ -181,7 +199,7 @@ TYPED_TEST(BroadcastToOpTest, ComplexBroadcast4DDynamicTest) {
   BroadcastToOpModel<TypeParam> m({1, 3, 1, 2}, {4});
   m.SetInput({1, 2, 3, 4, 5, 6});
   m.SetShape({3, 3, 2, 2});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({3, 3, 2, 2}));
   EXPECT_THAT(
       m.GetOutput(),
@@ -192,7 +210,7 @@ TYPED_TEST(BroadcastToOpTest, ComplexBroadcast4DDynamicTest) {
 TYPED_TEST(BroadcastToOpTest, ComplexBroadcast6DConstTest) {
   BroadcastToOpModel<TypeParam> m({1, 2, 1, 3, 1, 2}, {6}, {2, 2, 1, 3, 2, 2});
   m.SetInput({1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({2, 2, 1, 3, 2, 2}));
   EXPECT_THAT(m.GetOutput(),
               ElementsAreArray({1, 2, 1, 2, 3, 4,  3, 4,  5,  6,  5,  6,
@@ -205,7 +223,7 @@ TYPED_TEST(BroadcastToOpTest, ComplexBroadcast6DDynamicTest) {
   BroadcastToOpModel<TypeParam> m({1, 2, 1, 3, 1, 2}, {6});
   m.SetInput({1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12});
   m.SetShape({2, 2, 1, 3, 2, 2});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({2, 2, 1, 3, 2, 2}));
   EXPECT_THAT(m.GetOutput(),
               ElementsAreArray({1, 2, 1, 2, 3, 4,  3, 4,  5,  6,  5,  6,
@@ -219,7 +237,7 @@ TYPED_TEST(BroadcastToOpTest, ComplexBroadcast8DConstTest) {
                                   {2, 3, 1, 2, 2, 4, 1, 1});
   m.SetInput({1,  2,  3,  4,  5,  6,  7,  8,  9,  10, 11, 12,
               13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({2, 3, 1, 2, 2, 4, 1, 1}));
   EXPECT_THAT(
       m.GetOutput(),
@@ -236,7 +254,7 @@ TYPED_TEST(BroadcastToOpTest, ComplexBroadcast8DDynamicTest) {
   BroadcastToOpModel<TypeParam> m({2, 1, 1, 2, 1, 4, 1, 1}, {8});
   m.SetInput({1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16});
   m.SetShape({2, 3, 2, 2, 2, 4, 1, 1});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({2, 3, 2, 2, 2, 4, 1, 1}));
   EXPECT_THAT(
       m.GetOutput(),
@@ -258,7 +276,7 @@ TYPED_TEST(BroadcastToOpTest, ComplexBroadcast8DDynamicTest) {
 TYPED_TEST(BroadcastToOpTest, ExtendingShape4DConstTest) {
   BroadcastToOpModel<TypeParam> m({3, 1, 2}, {4}, {3, 3, 2, 2});
   m.SetInput({1, 2, 3, 4, 5, 6});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({3, 3, 2, 2}));
   EXPECT_THAT(
       m.GetOutput(),
@@ -269,7 +287,7 @@ TYPED_TEST(BroadcastToOpTest, ExtendingShape4DConstTest) {
 TYPED_TEST(BroadcastToOpTest, NoBroadcastingConstTest) {
   BroadcastToOpModel<TypeParam> m({3, 1, 2}, {3}, {3, 1, 2});
   m.SetInput({1, 2, 3, 4, 5, 6});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({3, 1, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({1, 2, 3, 4, 5, 6}));
 }
@@ -278,7 +296,7 @@ TYPED_TEST(BroadcastToOpTest, NoBroadcasting8DConstTest) {
   BroadcastToOpModel<TypeParam> m({3, 1, 1, 1, 1, 1, 1, 2}, {8},
                                   {3, 1, 1, 1, 1, 1, 1, 2});
   m.SetInput({1, 2, 3, 4, 5, 6});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({3, 1, 1, 1, 1, 1, 1, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({1, 2, 3, 4, 5, 6}));
 }
@@ -287,7 +305,7 @@ TYPED_TEST(BroadcastToOpTest, Int64ShapeConstTest) {
   BroadcastToOpModel<TypeParam, int64_t> m({1, 1, 1, 1, 1, 1, 2, 1}, {8},
                                            {1, 1, 1, 1, 1, 1, 2, 2});
   m.SetInput({3, 4});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({1, 1, 1, 1, 1, 1, 2, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 4, 4}));
 }
@@ -296,10 +314,29 @@ TYPED_TEST(BroadcastToOpTest, Int64ShapeDDynamicTest) {
   BroadcastToOpModel<TypeParam, int64_t> m({1, 1, 1, 1, 1, 1, 2, 1}, {8});
   m.SetInput({3, 4});
   m.SetShape({1, 1, 1, 1, 1, 1, 2, 2});
-  m.Invoke();
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
   EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({1, 1, 1, 1, 1, 1, 2, 2}));
   EXPECT_THAT(m.GetOutput(), ElementsAreArray({3, 3, 4, 4}));
 }
+
+TYPED_TEST(BroadcastToOpTest, BroadcastToEmtpyShapeTest) {
+  BroadcastToOpModel<TypeParam> m({3, 1, 2}, {3}, {3, 0, 2});
+  m.SetInput({1, 2, 3, 4, 5, 6});
+  ASSERT_EQ(m.Invoke(), kTfLiteOk);
+  EXPECT_THAT(m.GetOutputShape(), ElementsAreArray({3, 0, 2}));
+}
+
+#if defined(TFLITE_ENABLE_EXTRA_REFERENCE_KERNELS)
+TEST(BroadcastToOpTest, Float8) {
+  for (TensorType tensor_type :
+       {TensorType_FLOAT8_E4M3FN, TensorType_FLOAT8_E5M2}) {
+    BroadcastToOpModel<uint8_t> model({1, 2}, {2}, {2, 2}, tensor_type);
+    model.SetInput({0x38, 0xbc});
+    ASSERT_EQ(model.Invoke(), kTfLiteOk);
+    EXPECT_THAT(model.GetOutput(), ElementsAreArray({0x38, 0xbc, 0x38, 0xbc}));
+  }
+}
+#endif
 
 }  // namespace
 }  // namespace tflite

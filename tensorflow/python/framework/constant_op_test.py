@@ -14,11 +14,8 @@
 # ==============================================================================
 """Tests for tensorflow.python.framework.constant_op."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl.testing import parameterized
+import numpy as np
 
 from google.protobuf import text_format
 
@@ -87,6 +84,15 @@ class ConstantOpTest(test.TestCase, parameterized.TestCase):
 
     self.assertAllClose(3.14, f_using_eagerconst(constant_op.constant(3.14)))
 
+  def test_np_array_memory_not_shared(self):
+    # An arbitrarily large loop number to test memory sharing
+    for _ in range(10000):
+      x = np.arange(10)
+      xt = constant_op.constant(x)
+      x[3] = 42
+      # Changing the input array after `xt` is created should not affect `xt`
+      self.assertEqual(xt.numpy()[3], 3)
+
   def test_eager_const_grad_error(self):
 
     @def_function.function
@@ -131,6 +137,13 @@ class ConstantOpTest(test.TestCase, parameterized.TestCase):
           vec_fn, constant_op.constant([1., 2.]), fallback_to_while_loop=False)
 
     self.assertAllClose([1., 2.], f_using_eagerconst())
+
+  def test_eager_tensor_numpy_array_protocol_scalar(self):
+    t = constant_op.constant(42.0)
+    arr = t.__array__()
+    self.assertIsInstance(arr, np.ndarray)
+    self.assertEqual(arr.shape, ())
+    self.assertEqual(arr.item(), 42.0)
 
 
 if __name__ == "__main__":

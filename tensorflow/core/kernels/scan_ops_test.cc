@@ -27,7 +27,7 @@ static Graph* LargeOneDCumsum(int num_x, bool reverse = false) {
   Tensor data(DataTypeToEnum<T>::value, TensorShape({num_x}));
   data.flat<T>().setRandom();
   Tensor axes(DT_INT32, TensorShape({}));
-  axes.flat<int32>()(0) = 0;
+  axes.flat<int32_t>()(0) = 0;
   test::graph::Cumsum(g, test::graph::Constant(g, data),
                       test::graph::Constant(g, axes));
   return g;
@@ -38,7 +38,7 @@ static Graph* ColCumsum(int num_x, int num_y, bool reverse = false) {
   Tensor data(DT_FLOAT, TensorShape({num_x, num_y}));
   data.flat<float>().setRandom();
   Tensor axes(DT_INT32, TensorShape({}));
-  axes.flat<int32>()(0) = 0;
+  axes.flat<int32_t>()(0) = 0;
   test::graph::Cumsum(g, test::graph::Constant(g, data),
                       test::graph::Constant(g, axes));
   return g;
@@ -49,7 +49,7 @@ static Graph* RowCumsum(int num_x, int num_y, bool reverse = false) {
   Tensor data(DT_FLOAT, TensorShape({num_x, num_y}));
   data.flat<float>().setRandom();
   Tensor axes(DT_INT32, TensorShape({}));
-  axes.flat<int32>()(0) = 1;
+  axes.flat<int32_t>()(0) = 1;
   test::graph::Cumsum(g, test::graph::Constant(g, data),
                       test::graph::Constant(g, axes));
   return g;
@@ -60,7 +60,7 @@ static Graph* ThreeDYCumsum(int num_y, int num_z, bool reverse = false) {
   Tensor data(DT_FLOAT, TensorShape({32, num_y, num_z}));
   data.flat<float>().setRandom();
   Tensor axes(DT_INT32, TensorShape({}));
-  axes.flat<int32>()(0) = 1;
+  axes.flat<int32_t>()(0) = 1;
   test::graph::Cumsum(g, test::graph::Constant(g, data),
                       test::graph::Constant(g, axes));
   return g;
@@ -68,49 +68,49 @@ static Graph* ThreeDYCumsum(int num_y, int num_z, bool reverse = false) {
 
 template <typename T>
 static void LargeOneDimensional(::testing::benchmark::State& state,
-                                const string& device, int num_x,
+                                const std::string& device, int num_x,
                                 bool reverse = false) {
   test::Benchmark(device, LargeOneDCumsum<T>(num_x, reverse),
                   /*old_benchmark_api*/ false)
       .Run(state);
-  state.SetItemsProcessed(static_cast<int64>(state.iterations()) * num_x);
-  state.SetBytesProcessed(static_cast<int64>(state.iterations()) * num_x *
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_x);
+  state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * num_x *
                           sizeof(T));
 }
 
 static void DoRowCumsum(::testing::benchmark::State& state,
-                        const string& device, int num_x, int num_y,
+                        const std::string& device, int num_x, int num_y,
                         bool reverse = false) {
   test::Benchmark(device, RowCumsum(num_x, num_y, reverse),
                   /*old_benchmark_api*/ false)
       .Run(state);
-  state.SetItemsProcessed(static_cast<int64>(state.iterations()) * num_x *
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_x *
                           num_y);
-  state.SetBytesProcessed(static_cast<int64>(state.iterations()) * num_x *
+  state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * num_x *
                           num_y * sizeof(float));
 }
 
 static void DoColCumsum(::testing::benchmark::State& state,
-                        const string& device, int num_x, int num_y,
+                        const std::string& device, int num_x, int num_y,
                         bool reverse = false) {
   test::Benchmark(device, ColCumsum(num_x, num_y, reverse),
                   /*old_benchmark_api*/ false)
       .Run(state);
-  state.SetItemsProcessed(static_cast<int64>(state.iterations()) * num_x *
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_x *
                           num_y);
-  state.SetBytesProcessed(static_cast<int64>(state.iterations()) * num_x *
+  state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * num_x *
                           num_y * sizeof(float));
 }
 
 static void Do3DYCumsum(::testing::benchmark::State& state,
-                        const string& device, int num_x, int num_y,
+                        const std::string& device, int num_x, int num_y,
                         bool reverse = false) {
   test::Benchmark(device, ThreeDYCumsum(num_x, num_y, reverse),
                   /*old_benchmark_api*/ false)
       .Run(state);
-  state.SetItemsProcessed(static_cast<int64>(state.iterations()) * num_x *
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * num_x *
                           num_y);
-  state.SetBytesProcessed(static_cast<int64>(state.iterations()) * num_x *
+  state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * num_x *
                           num_y * sizeof(float));
 }
 

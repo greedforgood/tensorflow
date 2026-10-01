@@ -16,9 +16,13 @@ limitations under the License.
 #define EIGEN_USE_THREADS
 
 #include "tensorflow/core/kernels/concat_lib_cpu.h"
+
+#include <cstddef>
 #include <vector>
+
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/kernels/concat_lib.h"
+#include "tensorflow/core/platform/tstring.h"
 
 namespace tensorflow {
 
@@ -26,7 +30,7 @@ namespace {
 template <typename T>
 struct MemCpyCopier {
   inline void Copy(T* dst, const T* src, int input_index, size_t n) {
-    if (DataTypeCanUseMemcpy(DataTypeToEnum<T>::v())) {
+    if constexpr (DataTypeCanUseMemcpy(DataTypeToEnum<T>::v())) {
       memcpy(dst, src, n * sizeof(T));
     } else {
       for (size_t k = 0; k < n; ++k) {
@@ -35,6 +39,29 @@ struct MemCpyCopier {
     }
   }
 };
+
+// Specializes `tstring` copy is required here because `tstring` can be of
+// view-type. This means that the underlying `tstring` lifetime cannot be
+// controlled by this operation.
+// For example, if `*src` is a view from a `Tensor` and we invoke
+// the default copy constructor here to shallow copy `*src` to `*dst`, but later
+// `Tensor` that owns `*src` is freed, we will be in use-after-free trouble.
+// Therefore, we should always copy `tstring` here to avoid use-after-free
+// due to `tstring` view type. This also matches the semantic of `MemCpyCopier`
+// to always copy data from upstream.
+template <>
+struct MemCpyCopier<tstring> {
+  inline void Copy(tstring* dst, const tstring* src, int input_index,
+                   size_t n) {
+    for (size_t k = 0; k < n; ++k) {
+      // Copies `src` to `cpy` to decouple the lifetime from the original
+      // `src` string which can be potentially a `view`.
+      (*dst++).assign(src->data(), src->size());
+      src++;
+    }
+  }
+};
+
 template <>
 struct MemCpyCopier<ResourceHandle> {
   inline void Copy(ResourceHandle* dst, const ResourceHandle* src,
@@ -46,7 +73,7 @@ struct MemCpyCopier<ResourceHandle> {
 };
 
 template <typename T>
-int64 EstimateBytesPerElement(
+int64_t EstimateBytesPerElement(
     const std::vector<std::unique_ptr<typename TTypes<T, 2>::ConstMatrix>>&
         inputs) {
   return sizeof(T);
@@ -57,13 +84,13 @@ int64 EstimateBytesPerElement(
 // reshapes all the inputs to matrices), by sampling the lengths of the actual
 // strings in the various tensors.
 template <>
-int64 EstimateBytesPerElement<tstring>(
+int64_t EstimateBytesPerElement<tstring>(
     const std::vector<
         std::unique_ptr<typename TTypes<tstring, 2>::ConstMatrix>>& inputs) {
   // randomly sample a few input strings to get a sense of the average size
   // of each element
   int num_samples = 0;
-  int64 num_bytes_in_samples = 0;
+  int64_t num_bytes_in_samples = 0;
   for (const auto& input : inputs) {
     const auto dim0 = input->dimension(0);
     const auto dim1 = input->dimension(1);
@@ -88,7 +115,7 @@ int64 EstimateBytesPerElement<tstring>(
   }
   // We don't use sizeof(std::string) as the overhead, since that would
   // overestimate the memory touched for copying a string.
-  int64 string_overhead = sizeof(char*) + sizeof(size_t);
+  int64_t string_overhead = sizeof(char*) + sizeof(size_t);
   return string_overhead +
          ((num_samples > 0) ? (num_bytes_in_samples / num_samples) : 0);
 }
@@ -101,7 +128,7 @@ void ConcatCPU(
     const std::vector<std::unique_ptr<typename TTypes<T, 2>::ConstMatrix>>&
         inputs,
     typename TTypes<T, 2>::Matrix* output) {
-  int64 cost_per_unit = EstimateBytesPerElement<T>(inputs);
+  int64_t cost_per_unit = EstimateBytesPerElement<T>(inputs);
   ConcatCPUImpl<T>(d, inputs, cost_per_unit, MemCpyCopier<T>(), output);
 }
 
@@ -111,18 +138,15 @@ void ConcatCPU(
       const std::vector<std::unique_ptr<typename TTypes<T, 2>::ConstMatrix>>&, \
       typename TTypes<T, 2>::Matrix* output);
 TF_CALL_ALL_TYPES(REGISTER)
-REGISTER(quint8)
-REGISTER(qint8)
-REGISTER(quint16)
-REGISTER(qint16)
-REGISTER(qint32)
+TF_CALL_float8_e5m2(REGISTER) TF_CALL_float8_e4m3fn(REGISTER) REGISTER(quint8)
+    REGISTER(qint8) REGISTER(quint16) REGISTER(qint16) REGISTER(qint32)
 
 #if defined(IS_MOBILE_PLATFORM) && !defined(SUPPORT_SELECTIVE_REGISTRATION) && \
     !defined(__ANDROID_TYPES_FULL__)
-// Primarily used for SavedModel support on mobile. Registering it here only
-// if __ANDROID_TYPES_FULL__ is not defined (which already registers string)
-// to avoid duplicate registration.
-REGISTER(tstring);
+    // Primarily used for SavedModel support on mobile. Registering it here only
+    // if __ANDROID_TYPES_FULL__ is not defined (which already registers string)
+    // to avoid duplicate registration.
+    REGISTER(tstring);
 #endif  // defined(IS_MOBILE_PLATFORM) &&
         // !defined(SUPPORT_SELECTIVE_REGISTRATION) &&
         // !defined(__ANDROID_TYPES_FULL__)

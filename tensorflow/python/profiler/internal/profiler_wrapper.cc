@@ -15,60 +15,83 @@ limitations under the License.
 
 #include <memory>
 #include <string>
-#include <vector>
+#include <utility>
+#include <variant>
 
-#include "absl/container/flat_hash_map.h"
-#include "absl/types/variant.h"
-#include "pybind11/pybind11.h"
-#include "tensorflow/core/profiler/convert/xplane_to_tools_data.h"
+#include "absl/status/status.h"
+#include "pybind11/pybind11.h"  // from @pybind11
 #include "tensorflow/core/profiler/rpc/profiler_server.h"
 #include "tensorflow/python/lib/core/pybind11_status.h"
 #include "tensorflow/python/profiler/internal/profiler_pywrap_impl.h"
+#include "xprof/convert/repository.h"  // from @org_xprof
+#include "xprof/convert/tool_options.h"  // from @org_xprof
+#include "xprof/convert/xplane_to_tools_data.h"  // from @org_xprof
 
 namespace py = ::pybind11;
 
-using ::tensorflow::profiler::pywrap::ProfilerSessionWrapper;
-
 namespace {
 
-// This must be called under GIL because it reads Python objects. Reading Python
-// objects require GIL because the objects can be mutated by other Python
+using ::tensorflow::profiler::ToolOptions;
+using ::tensorflow::profiler::pywrap::ProfilerSessionWrapper;
+
+// These must be called under GIL because it reads Python objects. Reading
+// Python objects require GIL because the objects can be mutated by other Python
 // threads. In addition, Python objects are reference counted; reading py::dict
 // will increase its reference count.
-absl::flat_hash_map<std::string, absl::variant<int>> ConvertDictToMap(
-    const py::dict& dict) {
-  absl::flat_hash_map<std::string, absl::variant<int>> map;
-  for (const auto& kw : dict) {
-    if (!kw.second.is_none()) {
-      map.emplace(kw.first.cast<std::string>(), kw.second.cast<int>());
+ToolOptions ToolOptionsFromPythonDict(const py::dict& dictionary) {
+  ToolOptions map;
+
+  // PyDict_Copy takes a stable snapshot of the options before iteration.
+  // This prevents concurrent mutation of the caller's dict from invalidating
+  // the iteration on free-threaded Python.
+  PyObject* copied = PyDict_Copy(dictionary.ptr());
+  if (copied == nullptr) {
+    throw py::error_already_set();
+  }
+  py::dict snapshot = py::reinterpret_steal<py::dict>(copied);
+
+  for (const auto& item : snapshot) {
+    std::variant<bool, int, std::string> value;
+    try {
+      value = item.second.cast<bool>();
+    } catch (...) {
+      try {
+        value = item.second.cast<int>();
+      } catch (...) {
+        try {
+          value = item.second.cast<std::string>();
+        } catch (...) {
+          continue;
+        }
+      }
     }
+    map.emplace(item.first.cast<std::string>(), value);
   }
   return map;
 }
 
 }  // namespace
 
-PYBIND11_MODULE(_pywrap_profiler, m) {
+PYBIND11_MODULE(_pywrap_profiler, m, pybind11::mod_gil_not_used()) {
   py::class_<ProfilerSessionWrapper> profiler_session_class(m,
                                                             "ProfilerSession");
   profiler_session_class.def(py::init<>())
       .def("start",
            [](ProfilerSessionWrapper& wrapper, const char* logdir,
               const py::dict& options) {
-             tensorflow::Status status;
-             absl::flat_hash_map<std::string, absl::variant<int>> opts =
-                 ConvertDictToMap(options);
+             absl::Status status;
+             ToolOptions tool_options = ToolOptionsFromPythonDict(options);
              {
                py::gil_scoped_release release;
-               status = wrapper.Start(logdir, opts);
+               status = wrapper.Start(logdir, tool_options);
              }
              // Py_INCREF and Py_DECREF must be called holding the GIL.
              tensorflow::MaybeRaiseRegisteredFromStatus(status);
            })
       .def("stop",
            [](ProfilerSessionWrapper& wrapper) {
-             tensorflow::string content;
-             tensorflow::Status status;
+             std::string content;
+             absl::Status status;
              {
                py::gil_scoped_release release;
                status = wrapper.Stop(&content);
@@ -79,7 +102,7 @@ PYBIND11_MODULE(_pywrap_profiler, m) {
              return py::bytes(content);
            })
       .def("export_to_tb", [](ProfilerSessionWrapper& wrapper) {
-        tensorflow::Status status;
+        absl::Status status;
         {
           py::gil_scoped_release release;
           status = wrapper.ExportToTensorBoard();
@@ -89,57 +112,10 @@ PYBIND11_MODULE(_pywrap_profiler, m) {
       });
 
   m.def("start_server", [](int port) {
-    auto profiler_server =
-        absl::make_unique<tensorflow::profiler::ProfilerServer>();
+    auto profiler_server = std::make_unique<tsl::profiler::ProfilerServer>();
     profiler_server->StartProfilerServer(port);
     // Intentionally release profiler server. Should transfer ownership to
     // caller instead.
     profiler_server.release();
   });
-
-  m.def("trace",
-        [](const char* service_addr, const char* logdir,
-           const char* worker_list, bool include_dataset_ops, int duration_ms,
-           int num_tracing_attempts, py::dict options) {
-          tensorflow::Status status;
-          absl::flat_hash_map<std::string, absl::variant<int>> opts =
-              ConvertDictToMap(options);
-          {
-            py::gil_scoped_release release;
-            status = tensorflow::profiler::pywrap::Trace(
-                service_addr, logdir, worker_list, include_dataset_ops,
-                duration_ms, num_tracing_attempts, opts);
-          }
-          // Py_INCREF and Py_DECREF must be called holding the GIL.
-          tensorflow::MaybeRaiseRegisteredFromStatus(status);
-        });
-
-  m.def("monitor", [](const char* service_addr, int duration_ms,
-                      int monitoring_level, bool display_timestamp) {
-    tensorflow::string content;
-    tensorflow::Status status;
-    {
-      py::gil_scoped_release release;
-      status = tensorflow::profiler::pywrap::Monitor(
-          service_addr, duration_ms, monitoring_level, display_timestamp,
-          &content);
-    }
-    // Py_INCREF and Py_DECREF must be called holding the GIL.
-    tensorflow::MaybeRaiseRegisteredFromStatus(status);
-    return content;
-  });
-
-  m.def("xspace_to_tools_data",
-        [](const py::list& xspace_path_list, const py::str& py_tool_name) {
-          std::vector<std::string> xspace_paths;
-          for (py::handle obj : xspace_path_list) {
-            xspace_paths.push_back(std::string(py::cast<py::str>(obj)));
-          }
-          std::string tool_name = std::string(py_tool_name);
-          auto tool_data_and_success =
-              tensorflow::profiler::ConvertMultiXSpacesToToolData(xspace_paths,
-                                                                  tool_name);
-          return py::make_tuple(py::bytes(tool_data_and_success.first),
-                                py::bool_(tool_data_and_success.second));
-        });
 };

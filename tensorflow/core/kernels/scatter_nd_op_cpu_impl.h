@@ -20,10 +20,11 @@ limitations under the License.
 
 #define EIGEN_USE_THREADS
 
+#include <algorithm>
 #include <atomic>
+#include <type_traits>
 
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
-
+#include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
 #include "tensorflow/core/framework/bounds_check.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/register_types.h"
@@ -119,27 +120,70 @@ struct ScatterNdFunctor<CPUDevice, T, Index, OP, IXDIM> {
     const Eigen::DenseIndex batch_size = Tindices.dimension(0);
 
     Index batch_strides[IXDIM];
-    for (int dim = IXDIM - 1; dim >= 0; --dim) {
-      if (dim == IXDIM - 1) {
-        batch_strides[dim] = 1;
-      } else {
-        batch_strides[dim] =
-            batch_strides[dim + 1] * output_shape_prefix[dim + 1];
-      }
+    if (IXDIM > 0) {
+      batch_strides[IXDIM - 1] = 1;
+    }
+    for (int dim = IXDIM - 2; dim >= 0; --dim) {
+      batch_strides[dim] =
+          batch_strides[dim + 1] * output_shape_prefix[dim + 1];
     }
 
-    for (Eigen::DenseIndex loc = 0; loc < batch_size; ++loc) {
-      Index i = 0;
-      bool out_of_bounds = false;
-      for (int dim = 0; dim < IXDIM; ++dim) {
-        const Index ix_d = internal::SubtleMustCopy(Tindices(loc, dim));
-        out_of_bounds |= !FastBoundsCheck(ix_d, output_shape_prefix[dim]);
-        i += ix_d * batch_strides[dim];
+    if (slice_size == 1) {
+      T* out_data = Toutput.data();
+      const T* update_data = Tupdates.data();
+      for (Eigen::DenseIndex loc = 0; loc < batch_size; ++loc) {
+        Index i = 0;
+        bool out_of_bounds = false;
+        for (int dim = 0; dim < IXDIM; ++dim) {
+          const Index ix_d = internal::SubtleMustCopy(Tindices(loc, dim));
+          out_of_bounds |= !FastBoundsCheck(ix_d, output_shape_prefix[dim]);
+          i += ix_d * batch_strides[dim];
+        }
+        if (TF_PREDICT_FALSE(out_of_bounds)) {
+          error_loc = loc;
+          continue;
+        }
+        if constexpr (OP == scatter_nd_op::UpdateOp::ASSIGN) {
+          out_data[i] = update_data[loc];
+        } else if constexpr (OP == scatter_nd_op::UpdateOp::ADD) {
+          if constexpr (std::is_same_v<T, tstring>) {
+            out_data[i].append(update_data[loc]);
+          } else if constexpr (std::is_same_v<T, bool>) {
+            out_data[i] |= update_data[loc];
+          } else {
+            out_data[i] += update_data[loc];
+          }
+        } else if constexpr (OP == scatter_nd_op::UpdateOp::SUB) {
+          if constexpr (std::is_same_v<T, bool>) {
+            out_data[i] ^= update_data[loc];
+          } else if constexpr (!std::is_same_v<T, tstring>) {
+            out_data[i] -= update_data[loc];
+          }
+        } else if constexpr (OP == scatter_nd_op::UpdateOp::MIN) {
+          if constexpr (!std::is_same_v<T, tstring>) {
+            out_data[i] = std::min(out_data[i], update_data[loc]);
+          }
+        } else if constexpr (OP == scatter_nd_op::UpdateOp::MAX) {
+          if constexpr (!std::is_same_v<T, tstring>) {
+            out_data[i] = std::max(out_data[i], update_data[loc]);
+          }
+        }
       }
-      if (TF_PREDICT_FALSE(out_of_bounds)) {
-        error_loc = loc;
-        break;
-      } else {
+    } else {
+      for (Eigen::DenseIndex loc = 0; loc < batch_size; ++loc) {
+        Index i = 0;
+        bool out_of_bounds = false;
+        for (int dim = 0; dim < IXDIM; ++dim) {
+          const Index ix_d = internal::SubtleMustCopy(Tindices(loc, dim));
+          out_of_bounds |= !FastBoundsCheck(ix_d, output_shape_prefix[dim]);
+          i += ix_d * batch_strides[dim];
+        }
+        if (TF_PREDICT_FALSE(out_of_bounds)) {
+          error_loc = loc;
+          // Don't break the loop here, but continue to update the rest because
+          // the caller might ignore bad indices.
+          continue;
+        }
         auto input_chip = Toutput.template chip<0>(i);
         auto output_chip = input_chip;
         auto update_chip = Tupdates.template chip<0>(loc);

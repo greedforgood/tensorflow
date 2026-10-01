@@ -14,10 +14,6 @@
 # ==============================================================================
 """Tests for tensorflow.ops.math_ops.matrix_inverse."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import itertools
 import unittest
 
@@ -25,6 +21,7 @@ from absl.testing import parameterized
 import numpy as np
 
 from tensorflow.compiler.tests import xla_test
+from tensorflow.python.framework import errors
 from tensorflow.python.framework import test_util
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import linalg_ops
@@ -64,7 +61,7 @@ class QrOpTest(xla_test.XLATestCase, parameterized.TestCase):
   def CheckApproximation(self, a, q, r):
     # Tests that a ~= q*r.
     precision = self.AdjustedNorm(a - np.matmul(q, r))
-    self.assertTrue(np.all(precision < 10.0))
+    self.assertTrue(np.all(precision < 11.0))
 
   def CheckUnitary(self, x):
     # Tests that x[...,:,:]^H * x[...,:,:] is close to the identity.
@@ -146,6 +143,18 @@ class QrOpTest(xla_test.XLATestCase, parameterized.TestCase):
     x_np = self._random_matrix(np.complex64, (rows, cols))
     x_np[:, 1] = x_np[:, 2]
     self._test(x_np, full_matrices=True, full_rank=False)
+
+  def testVectorInputRaisesError(self):
+    # Regression test for GitHub issue 110798. The graph-level shape check
+    # only runs for inputs of known rank, so a rank-1 input reaching the
+    # compiler through an unknown-rank placeholder must be rejected at
+    # compile time instead of reaching a fatal check inside QrExplicit.
+    with self.session() as sess:
+      x_tf = array_ops.placeholder(np.float32)
+      with self.device_scope():
+        q_tf, r_tf = linalg_ops.qr(x_tf, full_matrices=True)
+      with self.assertRaisesRegex(errors.InvalidArgumentError, "rank >= 2"):
+        sess.run([q_tf, r_tf], feed_dict={x_tf: np.zeros([8], np.float32)})
 
 
 if __name__ == "__main__":

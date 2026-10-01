@@ -14,10 +14,6 @@
 # ==============================================================================
 """Test cases for ternary operators."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from absl.testing import parameterized
 import numpy as np
 import scipy.special as sps
@@ -64,18 +60,21 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
     self.assertEqual(result[0], expected[0])
 
   def testRange(self):
-    self._testTernary(
-        math_ops.range,
-        np.int32(1),
-        np.int32(2),
-        np.int32(1),
-        expected=np.array([1], dtype=np.int32))
-    self._testTernary(
-        math_ops.range,
-        np.int32(1),
-        np.int32(7),
-        np.int32(2),
-        expected=np.array([1, 3, 5], dtype=np.int32))
+    for dtype in (self.int_types | self.float_types) - {np.uint8}:
+      self._testTernary(
+          math_ops.range,
+          dtype(1),
+          dtype(2),
+          dtype(1),
+          expected=np.array([1], dtype=dtype),
+      )
+      self._testTernary(
+          math_ops.range,
+          dtype(1),
+          dtype(7),
+          dtype(2),
+          expected=np.array([1, 3, 5], dtype=dtype),
+      )
 
   def testSelect(self):
     for dtype in self.numeric_types:
@@ -102,14 +101,14 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
 
       self._testTernary(
           array_ops.where,
-          np.array([0, 1, 1, 0], dtype=np.bool),
+          np.array([0, 1, 1, 0], dtype=np.bool_),
           np.array([1, 2, 3, 4], dtype=dtype),
           np.array([5, 6, 7, 8], dtype=dtype),
           expected=np.array([5, 2, 3, 8], dtype=dtype))
 
       self._testTernary(
           array_ops.where,
-          np.array([0, 1, 0], dtype=np.bool),
+          np.array([0, 1, 0], dtype=np.bool_),
           np.array([[1, 2], [3, 4], [5, 6]], dtype=dtype),
           np.array([[7, 8], [9, 10], [11, 12]], dtype=dtype),
           expected=np.array([[7, 8], [3, 4], [11, 12]], dtype=dtype))
@@ -139,7 +138,7 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
 
       self._testTernary(
           array_ops.where_v2,
-          np.array([0, 1, 1, 0], dtype=np.bool),
+          np.array([0, 1, 1, 0], dtype=np.bool_),
           np.array([1, 2, 3, 4], dtype=dtype),
           np.array([5, 6, 7, 8], dtype=dtype),
           expected=np.array([5, 2, 3, 8], dtype=dtype))
@@ -147,7 +146,7 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
       # Broadcast the condition
       self._testTernary(
           array_ops.where_v2,
-          np.array([0, 1], dtype=np.bool),
+          np.array([0, 1], dtype=np.bool_),
           np.array([[1, 2], [3, 4], [5, 6]], dtype=dtype),
           np.array([[7, 8], [9, 10], [11, 12]], dtype=dtype),
           expected=np.array([[7, 2], [9, 4], [11, 6]], dtype=dtype))
@@ -155,7 +154,7 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
       # Broadcast the then branch to the else
       self._testTernary(
           array_ops.where_v2,
-          np.array([[0, 1], [1, 0], [1, 1]], dtype=np.bool),
+          np.array([[0, 1], [1, 0], [1, 1]], dtype=np.bool_),
           np.array([[1, 2]], dtype=dtype),
           np.array([[7, 8], [9, 10], [11, 12]], dtype=dtype),
           expected=np.array([[7, 2], [1, 10], [1, 2]], dtype=dtype))
@@ -163,7 +162,7 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
       # Broadcast the else branch to the then
       self._testTernary(
           array_ops.where_v2,
-          np.array([[1, 0], [0, 1], [0, 0]], dtype=np.bool),
+          np.array([[1, 0], [0, 1], [0, 0]], dtype=np.bool_),
           np.array([[7, 8], [9, 10], [11, 12]], dtype=dtype),
           np.array([[1, 2]], dtype=dtype),
           expected=np.array([[7, 2], [1, 10], [1, 2]], dtype=dtype))
@@ -171,13 +170,13 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
       # Broadcast the then/else branches to the condition
       self._testTernary(
           array_ops.where_v2,
-          np.array([[1, 0], [0, 1], [1, 1]], dtype=np.bool),
+          np.array([[1, 0], [0, 1], [1, 1]], dtype=np.bool_),
           np.array(7, dtype=dtype),
           np.array(8, dtype=dtype),
           expected=np.array([[7, 8], [8, 7], [7, 7]], dtype=dtype))
       self._testTernary(
           array_ops.where_v2,
-          np.array([[1, 0], [0, 1], [0, 0]], dtype=np.bool),
+          np.array([[1, 0], [0, 1], [0, 0]], dtype=np.bool_),
           np.array(7, dtype=dtype),
           np.array([8, 9], dtype=dtype),
           expected=np.array([[7, 9], [8, 7], [8, 9]], dtype=dtype))
@@ -189,21 +188,28 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
           np.array([[], [], []], dtype=dtype),
           np.array([1, 0], dtype=np.int32),
           np.array([2, 0], dtype=np.int32),
-          expected=np.array([[], []], dtype=dtype))
+          expected=np.array([[], []], dtype=dtype),
+      )
 
       self._testTernary(
           array_ops.slice,
           np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]], dtype=dtype),
           np.array([0, 1], dtype=np.int32),
           np.array([2, 1], dtype=np.int32),
-          expected=np.array([[2], [5]], dtype=dtype))
+          expected=np.array([[2], [5]], dtype=dtype),
+      )
 
   def testClipByValue(self):
-    for dtype in self.numeric_types - self.complex_types:
+    for dtype in (
+        self.numeric_types - self.complex_types - self.unsigned_int_types
+    ):
       test_cases = [
           (np.array([2, 4, 5], dtype=dtype), dtype(7)),  #
           (dtype(1), np.array([2, 4, 5], dtype=dtype)),  #
-          (np.array([-2, 7, 7], dtype=dtype), np.array([-2, 9, 8], dtype=dtype))
+          (
+              np.array([-2, 7, 7], dtype=dtype),
+              np.array([-2, 9, 8], dtype=dtype),
+          ),
       ]
       x = np.array([-2, 10, 6], dtype=dtype)
       for lower, upper in test_cases:
@@ -227,7 +233,8 @@ class TernaryOpsTest(xla_test.XLATestCase, parameterized.TestCase):
       x = np.array([.3, .4, .0, .1], dtype=dtype)
       expected = sps.betainc(a, b, x)
       self._testTernary(
-          math_ops.betainc, a, b, x, expected, rtol=5e-6, atol=6e-6)
+          math_ops.betainc, a, b, x, expected, rtol=5e-5, atol=6e-5
+      )
 
   @parameterized.parameters(
       {

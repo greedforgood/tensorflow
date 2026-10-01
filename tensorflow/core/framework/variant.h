@@ -25,6 +25,7 @@ limitations under the License.
 
 #include "absl/memory/memory.h"
 #include "tensorflow/core/framework/type_index.h"
+#include "tensorflow/core/framework/variant_encode_decode.h"
 #include "tensorflow/core/framework/variant_tensor_data.h"
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/strcat.h"
@@ -46,10 +47,10 @@ template <typename T>
 bool DecodeVariant(std::string* buf, T* value);
 
 template <typename T>
-void EncodeVariant(const T& value, VariantTensorData* data);
+bool EncodeVariant(const T& value, VariantTensorData* data);
 
 template <typename T>
-void EncodeVariant(const T& value, std::string* buf);
+bool EncodeVariant(const T& value, std::string* buf);
 
 // This is an implementation of a type-erased container that can store an
 // object of any type. The implementation is very similar to std::any, but has
@@ -67,8 +68,11 @@ void EncodeVariant(const T& value, std::string* buf);
 // following functions:
 //
 //   string TypeName() const;
-//   void Encode(VariantTensorData* data) const;
+//   bool Encode(VariantTensorData* data) const; // or: void Encode(...)
 //   bool Decode(VariantTensorData data);
+//
+// Note: `Encode` can return `bool` to indicate success/failure, or `void`
+// (which is treated as always succeeding).
 //
 // Simple POD types can elide the Encode/Decode functions, they are provided by
 // helper methods.
@@ -235,9 +239,12 @@ class Variant {
   }
 
   std::string DebugString() const {
-    return strings::StrCat(
-        "Variant<type: ", TypeName(),
-        " value: ", is_empty() ? "[empty]" : GetValue()->DebugString(), ">");
+    return strings::StrCat("Variant<type: ", TypeName(),
+                           " value: ", SummarizeValue(), ">");
+  }
+
+  std::string SummarizeValue() const {
+    return is_empty() ? "[empty]" : GetValue()->DebugString();
   }
 
   // Returns a pointer to the stored value if it is type T, or nullptr
@@ -272,20 +279,24 @@ class Variant {
   }
 
   // Serialize the contents of the stored object into `data`.
-  void Encode(VariantTensorData* data) const {
+  // Returns `true` on success, or `false` if serialization fails.
+  bool Encode(VariantTensorData* data) const {
     if (!is_empty()) {
-      GetValue()->Encode(data);
+      return GetValue()->Encode(data);
     }
+    return true;
   }
 
   // Deserialize `data` and update the stored object.
   bool Decode(VariantTensorData data);
 
   // Helper methods to directly serialize/deserialize from strings.
-  void Encode(std::string* buf) const {
+  // Returns `true` on success, or `false` if serialization fails.
+  bool Encode(std::string* buf) const {
     if (!is_empty()) {
-      GetValue()->Encode(buf);
+      return GetValue()->Encode(buf);
     }
+    return true;
   }
   bool Decode(std::string buf) {
     if (!is_empty()) {
@@ -315,9 +326,9 @@ class Variant {
     virtual void MoveInto(ValueInterface* memory) = 0;
     virtual std::string TypeName() const = 0;
     virtual std::string DebugString() const = 0;
-    virtual void Encode(VariantTensorData* data) const = 0;
+    virtual bool Encode(VariantTensorData* data) const = 0;
     virtual bool Decode(VariantTensorData data) = 0;
-    virtual void Encode(std::string* buf) const = 0;
+    virtual bool Encode(std::string* buf) const = 0;
     virtual bool Decode(std::string data) = 0;
   };
 
@@ -363,15 +374,17 @@ class Variant {
 
     std::string DebugString() const final { return DebugStringVariant(value); }
 
-    void Encode(VariantTensorData* data) const final {
-      EncodeVariant(value, data);
+    bool Encode(VariantTensorData* data) const final {
+      return EncodeVariant(value, data);
     }
 
     bool Decode(VariantTensorData data) final {
       return DecodeVariant(&data, &value);
     }
 
-    void Encode(std::string* buf) const final { EncodeVariant(value, buf); }
+    bool Encode(std::string* buf) const final {
+      return EncodeVariant(value, buf);
+    }
 
     bool Decode(std::string buf) final { return DecodeVariant(&buf, &value); }
 

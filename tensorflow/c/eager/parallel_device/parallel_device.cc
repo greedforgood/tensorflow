@@ -15,16 +15,22 @@ limitations under the License.
 
 #include "tensorflow/c/eager/parallel_device/parallel_device.h"
 
-#include <cstring>
+#include <cstdint>
 #include <memory>
+#include <optional>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
-#include "absl/types/optional.h"
 #include "absl/types/variant.h"
-#include "tensorflow/c/c_api.h"
 #include "tensorflow/c/eager/c_api.h"
 #include "tensorflow/c/eager/c_api_experimental.h"
 #include "tensorflow/c/eager/parallel_device/parallel_device_lib.h"
+#include "tensorflow/c/eager/tfe_tensorhandle_internal.h"
+#include "tensorflow/c/tf_buffer.h"
 #include "tensorflow/c/tf_status.h"
 #include "tensorflow/c/tf_status_helper.h"
 
@@ -40,10 +46,10 @@ class OpDeleter {
 using OpPtr = std::unique_ptr<TFE_Op, OpDeleter>;
 
 using MaybeParallelTensorOwned =
-    absl::variant<std::unique_ptr<ParallelTensor>, TensorHandlePtr>;
+    std::variant<std::unique_ptr<ParallelTensor>, TensorHandlePtr>;
 
 using MaybeParallelTensorUnowned =
-    absl::variant<ParallelTensor*, TFE_TensorHandle*>;
+    std::variant<ParallelTensor*, TFE_TensorHandle*>;
 
 // A ParallelDevice on its own is not registered with a TFE_Context, and so has
 // no device name (e.g. for `tf.device`). `NamedParallelDevice` associates a
@@ -62,13 +68,13 @@ class NamedParallelDevice {
   std::unique_ptr<ParallelDevice> parallel_device_;
 };
 
-absl::optional<std::vector<MaybeParallelTensorOwned>> ExecuteWithSpecialOps(
+std::optional<std::vector<MaybeParallelTensorOwned>> ExecuteWithSpecialOps(
     const ParallelDevice& parallel_device,
     const std::string& parallel_device_name, TFE_Context* context,
     std::vector<MaybeParallelTensorUnowned> inputs, const char* operation_name,
     const TFE_OpAttrs* attributes, int expected_max_outputs,
     TF_Status* status) {
-  absl::optional<std::vector<MaybeParallelTensorOwned>> result;
+  std::optional<std::vector<MaybeParallelTensorOwned>> result;
   // TODO(allenl): We should remove "TPU" from these op names at the very least,
   // or consider other ways of packing/unpacking parallel tensors.
   if (operation_name == std::string("TPUReplicatedInput")) {
@@ -120,6 +126,15 @@ absl::optional<std::vector<MaybeParallelTensorOwned>> ExecuteWithSpecialOps(
       TF_SetStatus(status, TF_INVALID_ARGUMENT, message.c_str());
       return result;
     }
+    if (inputs.size() != 1) {
+      std::string message(absl::StrCat("The parallel device ",
+                                       parallel_device_name,
+                                       " expected 1 input for "
+                                       "TPUReplicatedOutput, but got ",
+                                       inputs.size()));
+      TF_SetStatus(status, TF_INVALID_ARGUMENT, message.c_str());
+      return result;
+    }
     if (absl::holds_alternative<TFE_TensorHandle*>(inputs[0])) {
       TF_SetStatus(status, TF_INVALID_ARGUMENT,
                    "Expected the input to "
@@ -145,24 +160,42 @@ absl::optional<std::vector<MaybeParallelTensorOwned>> ExecuteWithSpecialOps(
   implicitly_broadcast_tensors.reserve(inputs.size());  // not tight
   for (const auto& input : inputs) {
     if (absl::holds_alternative<TFE_TensorHandle*>(input)) {
-      // Non-parallel tensors are implicitly broadcast, i.e. set as the input
-      // to each parallel operation.
-      //
-      // TODO(allenl): There may be smarter ways to do this copy in some
-      // cases, i.e. with a collective broadcast. We'll need to be careful
-      // about things that are taken as inputs on the host or on their
-      // existing device (for multi-device functions).
-      std::unique_ptr<ParallelTensor> parallel_tensor(
-          parallel_device.CopyToParallelDevice(
-              context, absl::get<TFE_TensorHandle*>(input), status));
-      if (TF_GetCode(status) != TF_OK) return result;
-      parallel_inputs.push_back(parallel_tensor.get());
-      implicitly_broadcast_tensors.emplace_back(std::move(parallel_tensor));
+      if (operation_name == std::string("_EagerConst")) {
+        // Non-parallel tensors from _EagerConst/tf.constant are implicitly
+        // broadcast, i.e. set as the input to each parallel operation. This
+        // allows code like "tf.constant(1.)" or "tf.reduce_sum(..., axis=1)"
+        // (where the value starts on the host), without allowing other implicit
+        // copies/broadcasts. Other implicit copies may be supported eventually,
+        // but need special handling for gradients (gradient of copy-on is not
+        // just copy-off but includes a sum) and consideration of performance.
+        //
+        // TODO(allenl): There may be smarter ways to do this copy in some
+        // cases, i.e. with a collective broadcast. We'll need to be careful
+        // about things that are taken as inputs on the host or on their
+        // existing device (for multi-device functions).
+        std::unique_ptr<ParallelTensor> parallel_tensor(
+            parallel_device.CopyToParallelDevice(
+                context, absl::get<TFE_TensorHandle*>(input), status));
+        if (TF_GetCode(status) != TF_OK) return std::nullopt;
+        parallel_inputs.push_back(parallel_tensor.get());
+        implicitly_broadcast_tensors.emplace_back(std::move(parallel_tensor));
+      } else {
+        TF_SetStatus(
+            status, TF_INVALID_ARGUMENT,
+            absl::StrCat(
+                "Got a non-parallel tensor ",
+                tensorflow::unwrap(absl::get<TFE_TensorHandle*>(input))
+                    ->DebugString(),
+                " as input to a parallel operation. First pack non-parallel "
+                "tensors for each device into a parallel tensor explicitly.")
+                .c_str());
+        return std::nullopt;
+      }
     } else {
       parallel_inputs.push_back(absl::get<ParallelTensor*>(input));
     }
   }
-  absl::optional<std::vector<std::unique_ptr<ParallelTensor>>>
+  std::optional<std::vector<std::unique_ptr<ParallelTensor>>>
       maybe_parallel_results(
           parallel_device.Execute(context, parallel_inputs, operation_name,
                                   attributes, expected_max_outputs, status));
@@ -190,9 +223,9 @@ void ParallelTensorDeallocator(void* data) {
 // number of dimensions of a parallel tensor.
 int ParallelTensorNumDims(void* data, TF_Status* status) {
   const std::vector<int64_t>* shape;
-  Status s = reinterpret_cast<ParallelTensor*>(data)->Shape(&shape);
+  absl::Status s = reinterpret_cast<ParallelTensor*>(data)->Shape(&shape);
   if (!s.ok()) {
-    Set_TF_Status_from_Status(status, s);
+    tsl::Set_TF_Status_from_Status(status, s);
     return -1;
   }
   return shape->size();
@@ -202,9 +235,9 @@ int ParallelTensorNumDims(void* data, TF_Status* status) {
 // dimension of a parallel tensor.
 int64_t ParallelTensorDim(void* data, int dim_index, TF_Status* status) {
   const std::vector<int64_t>* shape;
-  Status s = reinterpret_cast<ParallelTensor*>(data)->Shape(&shape);
+  absl::Status s = reinterpret_cast<ParallelTensor*>(data)->Shape(&shape);
   if (!s.ok()) {
-    Set_TF_Status_from_Status(status, s);
+    tsl::Set_TF_Status_from_Status(status, s);
     return -1;
   }
   return (*shape)[dim_index];
@@ -213,9 +246,9 @@ int64_t ParallelTensorDim(void* data, int dim_index, TF_Status* status) {
 TF_Buffer* ParallelTensorSummarize(void* data, TF_Status* status) {
   ParallelTensor* parallel_tensor = reinterpret_cast<ParallelTensor*>(data);
   std::string summary;
-  Status cpp_status = parallel_tensor->SummarizeValue(summary);
+  absl::Status cpp_status = parallel_tensor->SummarizeValue(summary);
   if (!cpp_status.ok()) {
-    Set_TF_Status_from_Status(status, cpp_status);
+    tsl::Set_TF_Status_from_Status(status, cpp_status);
     return nullptr;
   }
   return TF_NewBufferFromString(summary.data(), summary.size());
@@ -241,25 +274,20 @@ TensorHandlePtr ParallelTensorToTensorHandle(
 // For TFE_CustomDevice::copy_tensor_to_device in the parallel device
 // registration.
 //
-// Replicates a single TFE_TensorHandle, producing a TFE_TensorHandle containing
-// a ParallelTensor with one copy of `tensor` for each device in the
-// ParallelDevice.
-//
 // Since this function is used to satisfy the TFE_CustomDevice C API,
 // device_info is passed in using a C-style generic. It must always be a
 // ParallelDevice.
 TFE_TensorHandle* CopyToParallelDevice(TFE_Context* context,
                                        TFE_TensorHandle* tensor,
                                        TF_Status* status, void* device_info) {
-  NamedParallelDevice* named_device =
-      reinterpret_cast<NamedParallelDevice*>(device_info);
-  const ParallelDevice& dev = named_device->device();
-  std::unique_ptr<ParallelTensor> parallel_tensor(
-      dev.CopyToParallelDevice(context, tensor, status));
-  if (TF_GetCode(status) != TF_OK) return nullptr;
-  return ParallelTensorToTensorHandle(named_device->name(), context,
-                                      std::move(parallel_tensor), status)
-      .release();
+  TF_SetStatus(
+      status, TF_UNIMPLEMENTED,
+      absl::StrCat("Trying to copy a tensor ",
+                   tensorflow::unwrap(tensor)->DebugString(),
+                   " on to a parallel device. Pack non-parallel "
+                   "tensors for each device into a parallel tensor explicitly.")
+          .c_str());
+  return nullptr;
 }
 
 // For TFE_CustomDevice::copy_tensor_from_device in the parallel device
@@ -276,11 +304,25 @@ TFE_TensorHandle* CopyTensorFromParallelDevice(TFE_Context* context,
                                                const char* target_device_name,
                                                TF_Status* status,
                                                void* device_info) {
-  TF_SetStatus(status, TF_UNIMPLEMENTED,
-               "Trying to copy a tensor out of a parallel device. Since there "
-               "are multiple components to parallel tensors, they must be "
-               "unpacked explicitly.");
-  return nullptr;
+  ParallelTensor* parallel_tensor = reinterpret_cast<ParallelTensor*>(
+      TFE_TensorHandleDevicePointer(tensor, status));
+  if (TF_GetCode(status) != TF_OK) return nullptr;
+  if (parallel_tensor->num_tensors() == 1) {
+    // Copy-off for single-device tensors is allowed to make debugging dynamic
+    // control flow easier.
+    return TFE_TensorHandleCopySharingTensor(parallel_tensor->tensor(0),
+                                             status);
+  } else {
+    TF_SetStatus(
+        status, TF_UNIMPLEMENTED,
+        absl::StrCat(
+            "Trying to copy a tensor out of a parallel device. Since there "
+            "are multiple components to parallel tensors, they must be "
+            "unpacked explicitly.\n",
+            tensorflow::unwrap(tensor)->DebugString())
+            .c_str());
+    return nullptr;
+  }
 }
 
 // For TFE_CustomDevice::execute in the parallel device registration.
@@ -329,7 +371,7 @@ void ParallelDeviceExecute(const TFE_Op* original_op, int* num_outputs,
     }
   }
 
-  absl::optional<std::vector<MaybeParallelTensorOwned>> maybe_typed_outputs(
+  std::optional<std::vector<MaybeParallelTensorOwned>> maybe_typed_outputs(
       ExecuteWithSpecialOps(named_device->device(), named_device->name(),
                             context, std::move(typed_inputs), operation_name,
                             attributes, *num_outputs, status));

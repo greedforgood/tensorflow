@@ -46,12 +46,12 @@ static void SliceHelper(::testing::benchmark::State& state) {
   CHECK_LT(size, kMaxSize);
 
   Tensor begin(DT_INT32, TensorShape({2}));
-  begin.flat<int32>()(0) = 10;
-  begin.flat<int32>()(1) = 10;
+  begin.flat<int32_t>()(0) = 10;
+  begin.flat<int32_t>()(1) = 10;
 
   Tensor sizes(DT_INT32, TensorShape({2}));
-  sizes.flat<int32>()(0) = kDim;
-  sizes.flat<int32>()(1) = size;
+  sizes.flat<int32_t>()(0) = kDim;
+  sizes.flat<int32_t>()(1) = size;
 
   Tensor input(dt, TensorShape({2 * kDim, kMaxSize}));
   input.flat<T>().setRandom();
@@ -68,8 +68,8 @@ static void SliceHelper(::testing::benchmark::State& state) {
   test::Benchmark("cpu", g, nullptr, nullptr, nullptr,
                   "SINGLE_THREADED_EXECUTOR", /*old_benchmark_api*/ false)
       .Run(state);
-  state.SetBytesProcessed(static_cast<int64>(state.iterations()) * kDim * size *
-                          sizeof(T));
+  state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * kDim *
+                          size * sizeof(T));
 }
 
 void BM_SliceFloat(::testing::benchmark::State& state) {

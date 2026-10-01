@@ -13,12 +13,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <algorithm>
 #include <chrono>  // NOLINT(build/c++11)
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <iostream>
+#include <memory>
 #include <string>
+#include <utility>
+#include <vector>
 
-#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "tensorflow/lite/delegates/gpu/api.h"
 #include "tensorflow/lite/delegates/gpu/cl/api.h"
@@ -295,9 +299,7 @@ absl::Status RunModelSampleWithInternalAPISerializedKernels(
   RETURN_IF_ERROR(inf_env->BuildSerializedModel(options, std::move(graph_cl),
                                                 &serialized_model));
   std::unique_ptr<InferenceBuilder> builder;
-  RETURN_IF_ERROR(inf_env->NewInferenceBuilder(serialized_model, &builder,
-                                               /*in_refs*/ nullptr,
-                                               /*out_refs*/ nullptr));
+  RETURN_IF_ERROR(inf_env->NewInferenceBuilder(serialized_model, &builder));
 
   // Sets input/output object def for builder_.
   ObjectDef obj_def;
@@ -317,8 +319,11 @@ absl::Status RunModelSampleWithInternalAPISerializedKernels(
   RETURN_IF_ERROR(builder->Build(&runner));
 
   const auto end = std::chrono::high_resolution_clock::now();
-  std::cout << "Initialization total time(with kernel cache) - "
-            << (end - start).count() * 1e-6f << "ms" << std::endl;
+  std::cout << "Initialization total time";
+  if (!kernel_cache.empty()) {
+    std::cout << "(with kernel cache)";
+  }
+  std::cout << " - " << (end - start).count() * 1e-6f << "ms" << std::endl;
 
   // Sets the input/output object.
   for (int i = 0; i < in_refs.size(); ++i) {
@@ -371,9 +376,9 @@ absl::Status RunModelSampleWithInternalAPISerialized(
 
   std::vector<int64_t> in_refs;
   std::vector<int64_t> out_refs;
+  RETURN_IF_ERROR(GetInOutRefs(serialized_model, &in_refs, &out_refs));
   std::unique_ptr<InferenceBuilder> builder;
-  RETURN_IF_ERROR(inf_env->NewInferenceBuilder(serialized_model, &builder,
-                                               &in_refs, &out_refs));
+  RETURN_IF_ERROR(inf_env->NewInferenceBuilder(serialized_model, &builder));
 
   // Sets input/output object def for builder_.
   ObjectDef obj_def;
@@ -393,8 +398,13 @@ absl::Status RunModelSampleWithInternalAPISerialized(
   RETURN_IF_ERROR(builder->Build(&runner));
 
   const auto end = std::chrono::high_resolution_clock::now();
-  std::cout << "Serialized initialization total time - "
-            << (end - start).count() * 1e-6f << "ms" << std::endl;
+  std::cout << "Serialized initialization total time";
+  if (kernel_cache.empty()) {
+    std::cout << "(without kernel cache)";
+  } else {
+    std::cout << "(with kernel cache)";
+  }
+  std::cout << " - " << (end - start).count() * 1e-6f << "ms" << std::endl;
 
   // Sets the input/output object.
   for (int i = 0; i < in_refs.size(); ++i) {
@@ -445,6 +455,14 @@ int main(int argc, char** argv) {
   }
   run_status = tflite::gpu::cl::RunModelSampleWithInternalAPISerializedKernels(
       argv[1], kernel_cache);
+  if (!run_status.ok()) {
+    std::cerr << run_status.message();
+    return -1;
+  }
+
+  // The same with empty kernels cache.
+  run_status = tflite::gpu::cl::RunModelSampleWithInternalAPISerializedKernels(
+      argv[1], {});
   if (!run_status.ok()) {
     std::cerr << run_status.message();
     return -1;

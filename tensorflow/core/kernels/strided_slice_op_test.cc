@@ -47,16 +47,16 @@ static void SliceHelper(::testing::benchmark::State& state) {
   CHECK_LT(size, kMaxSize);
 
   Tensor begin(DT_INT32, TensorShape({2}));
-  begin.flat<int32>()(0) = 10;
-  begin.flat<int32>()(1) = 10;
+  begin.flat<int32_t>()(0) = 10;
+  begin.flat<int32_t>()(1) = 10;
 
   Tensor end(DT_INT32, TensorShape({2}));
-  end.flat<int32>()(0) = 10 + kDim;
-  end.flat<int32>()(1) = 10 + size;
+  end.flat<int32_t>()(0) = 10 + kDim;
+  end.flat<int32_t>()(1) = 10 + size;
 
   Tensor strides(DT_INT32, TensorShape({2}));
-  strides.flat<int32>()(0) = 1;
-  strides.flat<int32>()(1) = 1;
+  strides.flat<int32_t>()(0) = 1;
+  strides.flat<int32_t>()(1) = 1;
 
   Tensor input(dt, TensorShape({2 * kDim, kMaxSize}));
   input.flat<T>().setRandom();
@@ -71,8 +71,8 @@ static void SliceHelper(::testing::benchmark::State& state) {
                   .Finalize(g, &node));
 
   test::Benchmark("cpu", g, /*old_benchmark_api*/ false).Run(state);
-  state.SetBytesProcessed(static_cast<int64>(state.iterations()) * kDim * size *
-                          sizeof(T));
+  state.SetBytesProcessed(static_cast<int64_t>(state.iterations()) * kDim *
+                          size * sizeof(T));
 }
 
 void BM_SliceFloat(::testing::benchmark::State& state) {
@@ -97,20 +97,20 @@ void BM_ValidateStridedSliceOp(::testing::benchmark::State& state) {
   int kDim = 100;
   int kMaxSize = 15000;
   int size = 100;
-  Tensor begin = test::AsTensor<int32>({10, 10});
-  Tensor end = test::AsTensor<int32>({10 + kDim, 10 + size});
-  Tensor strides = test::AsTensor<int32>({1, 1});
+  Tensor begin = test::AsTensor<int32_t>({10, 10});
+  Tensor end = test::AsTensor<int32_t>({10 + kDim, 10 + size});
+  Tensor strides = test::AsTensor<int32_t>({1, 1});
   TensorShape input_shape({2 * kDim, kMaxSize});
 
   for (auto s : state) {
     TensorShape processing_shape, final_shape;
     bool is_identity = true, slice_dim0 = true, is_simple_slice = true;
-    gtl::InlinedVector<int64, 4> begin_out, end_out, strides_out;
-    const int32 begin_mask = 0;
-    const int32 end_mask = 0;
-    const int32 ellipsis_mask = 0;
-    const int32 new_axis_mask = 0;
-    const int32 shrink_axis_mask = 0;
+    absl::InlinedVector<int64_t, 4UL> begin_out, end_out, strides_out;
+    const int32_t begin_mask = 0;
+    const int32_t end_mask = 0;
+    const int32_t ellipsis_mask = 0;
+    const int32_t new_axis_mask = 0;
+    const int32_t shrink_axis_mask = 0;
 
     TF_CHECK_OK(ValidateStridedSliceOp(
         &begin, &end, strides, input_shape, begin_mask, end_mask, ellipsis_mask,

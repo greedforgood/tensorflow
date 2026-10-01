@@ -20,9 +20,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 /**
  * Regular expression for TensorFlow Lite runtime version string, e.g. "1.14.0", "0.1.2-alpha.1",
- * "0.3.4-beta2", "1.14.0-rc.3".
+ * "0.3.4-beta2", "1.14.0-rc.3", "2.20.0-dev0+selfbuilt".
  */
-static NSString *const kTFLVersionRegex = @"^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?$";
+static NSString *const kTFLVersionRegex = @"^\\d+\\.\\d+\\.\\d+(-[a-zA-Z0-9.-]+)?(\\+\\w+)?$";
 
 /** Float model resource name. */
 static NSString *const kAddFloatModelResourceName = @"add";
@@ -34,7 +34,7 @@ static NSString *const kAddQuantizedModelResourceName = @"add_quantized";
 static NSString *const kAddModelResourceType = @"bin";
 
 /** Size of the first (and only) dimension of the input and output tensor in the Add model. */
-static const NSUInteger kAddModelTensorFirstDimensionSize = 2U;
+enum EnumType : NSUInteger {kAddModelTensorFirstDimensionSize = 2U};
 
 /** Quantization scale of the quantized model. */
 static const float kAddQuantizedModelScale = 0.003922F;
@@ -90,6 +90,7 @@ static const float kTestAccuracy = 1E-5F;
 #pragma mark - Tests
 
 - (void)testTFLVersion {
+  NSLog(@"TFLVersion: %@", TFLVersion);
   NSRange range = [TFLVersion rangeOfString:kTFLVersionRegex options:NSRegularExpressionSearch];
   XCTAssertNotEqual(range.location, NSNotFound);
 }

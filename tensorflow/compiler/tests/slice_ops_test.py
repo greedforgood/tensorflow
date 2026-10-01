@@ -14,10 +14,6 @@
 # ==============================================================================
 """Tests for slicing."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 from tensorflow.compiler.tests import xla_test
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import tensor_shape
@@ -53,6 +49,28 @@ class SliceTest(xla_test.XLATestCase):
         result = o.eval(feed_dict=params)
 
         self.assertAllEqual([], result)
+
+  def testSliceOfDynamicDimension(self):
+    # Regression test for GitHub issue 110789. The input's leading dimension
+    # is dynamic because it comes from where, and a partial slice of such a
+    # dimension returned wrong output sizes, and corrupted the heap on some
+    # platforms, instead of taking the requested slice.
+    with self.session():
+      i = array_ops.placeholder(dtypes.int64, shape=[2, 2, 5])
+      with self.test_scope():
+        indices = array_ops.where(math_ops.not_equal(i, 0))
+        sliced = array_ops.slice(indices, [0, 0], [2, 1])
+        empty = array_ops.slice(indices, [0, 0], [0, 1])
+      params = {
+          i: [
+              [[0, 1, 2, 3, 4], [5, 6, 7, 8, 9]],
+              [[10, 11, 12, 13, 14], [15, 16, 17, 18, 19]],
+          ],
+      }
+      # The first two nonzero elements sit at indices (0, 0, 1) and
+      # (0, 0, 2), so the slice holds the first coordinate of each.
+      self.assertAllEqual([[0], [0]], sliced.eval(feed_dict=params))
+      self.assertAllEqual((0, 1), empty.eval(feed_dict=params).shape)
 
   def test3D(self):
     for dtype in self.numeric_types:
@@ -154,6 +172,32 @@ class StridedSliceTest(xla_test.XLATestCase):
         result = o.eval(feed_dict=params)
 
         self.assertAllEqual([0], result)
+
+  def testDynamicSliceOutOfBounds(self):
+    for dtype in self.numeric_types:
+      with self.session():
+        i = array_ops.placeholder(dtype, shape=[10])
+        begin = array_ops.placeholder(dtypes.int32, shape=[1])
+        end = array_ops.placeholder(dtypes.int32, shape=[1])
+        with self.test_scope():
+          o = array_ops.strided_slice(i, begin, end, [1])
+        params = {i: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], begin: [5], end: [15]}
+        result = o.eval(feed_dict=params)
+
+        self.assertAllEqual([5, 6, 7, 8, 9], result)
+
+  def testZeroStridedSlice(self):
+    for dtype in self.numeric_types:
+      with self.session() as sess:
+        i = array_ops.placeholder(dtype, shape=[10])
+        with self.test_scope():
+          o1 = array_ops.strided_slice(i, [0], [5], [1])
+          o2 = array_ops.strided_slice(i, [10], [15], [1])
+        params = {i: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}
+        result1, result2 = sess.run([o1, o2], feed_dict=params)
+
+        self.assertAllEqual([0, 1, 2, 3, 4], result1)
+        self.assertAllEqual([], result2)
 
   def test1DNegativeStride(self):
     for dtype in self.numeric_types:
@@ -259,6 +303,50 @@ class StridedSliceTest(xla_test.XLATestCase):
                               [1, 1]],
                              [[2, 4],
                               [5, 7]]], result)
+
+  # Test shrink_axis_mask. This `strided_slice` call is equivalent to `i[1,:]`.
+  def testShrinkAxisMask(self):
+    for dtype in self.numeric_types:
+      with self.session():
+        i = array_ops.placeholder(dtype, shape=[2, 3])
+        with self.test_scope():
+          o = array_ops.strided_slice(i, [1, 0], [10, 3], shrink_axis_mask=1)
+        params = {
+            i: [[0, 1, 2], [3, 4, 5]],
+        }
+        result = o.eval(feed_dict=params)
+
+        self.assertAllEqual([3, 4, 5], result)
+
+  # Test shrink_axis_mask with the range for the second dimension implicit.
+  # This `strided_slice` call is equivalent to `i[1]`.
+  def testShrinkAxisMaskImplicitRange(self):
+    for dtype in self.numeric_types:
+      with self.session():
+        i = array_ops.placeholder(dtype, shape=[2, 3])
+        with self.test_scope():
+          o = array_ops.strided_slice(i, [1], [10], shrink_axis_mask=1)
+        params = {
+            i: [[0, 1, 2], [3, 4, 5]],
+        }
+        result = o.eval(feed_dict=params)
+
+        self.assertAllEqual([3, 4, 5], result)
+
+  # Regression for #124950. On a bounded-dynamic input (here tf.where's
+  # output), strided_slice with a negative begin used to compute a
+  # negative runtime dimension size and pass it to SetDimensionSize. The
+  # resulting fused XLA:CPU kernel then segfaulted on launch. The fix
+  # clamps the runtime size to zero (`strided_slice_op.cc`), matching
+  # the sibling dynamic-index branch's pattern.
+  def testStridedSliceOnDynamicInputWithDegenerateBoundsDoesNotCrash(self):
+    with self.session() as sess:
+      inp = array_ops.placeholder(dtypes.bool, shape=[3])
+      with self.test_scope():
+        result = array_ops.strided_slice(array_ops.where(inp), [-1, 0], [0, 3])
+      out = sess.run(result, feed_dict={inp: [True, False, True]})
+      self.assertEqual(tensor_shape.TensorShape((0, 1)), out.shape)
+
 
 if __name__ == "__main__":
   googletest.main()

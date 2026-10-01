@@ -36,7 +36,6 @@ limitations under the License.
 #include "tensorflow/core/platform/byte_order.h"
 #include "tensorflow/core/platform/cpu_info.h"
 #include "tensorflow/core/platform/logging.h"
-#include "tensorflow/core/platform/test_benchmark.h"
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/core/public/session_options.h"
 #include "tensorflow/core/public/version.h"
@@ -46,7 +45,7 @@ namespace tensorflow {
 namespace test {
 
 // TODO(hongm): Convert `g` and `init` to using std::unique_ptr.
-Benchmark::Benchmark(const string& device, Graph* g,
+Benchmark::Benchmark(const std::string& device, Graph* g,
                      const SessionOptions* options, Graph* init,
                      Rendezvous* rendez, const char* executor_type,
                      bool old_benchmark_api) {
@@ -60,15 +59,14 @@ Benchmark::Benchmark(const string& device, Graph* g,
     options = &default_options;
   }
 
-  old_benchmark_api_ = old_benchmark_api;
   CHECK(!old_benchmark_api) << "Expected new API only";
-  if (old_benchmark_api_) testing::StopTiming();
-  string t = absl::AsciiStrToUpper(device);
+
+  std::string t = absl::AsciiStrToUpper(device);
   // Allow NewDevice to allocate a new threadpool with different number of
   // threads for each new benchmark.
   LocalDevice::set_use_global_threadpool(false);
 
-  device_mgr_ = absl::make_unique<StaticDeviceMgr>(
+  device_mgr_ = std::make_unique<StaticDeviceMgr>(
       DeviceFactory::NewDevice(t, *options, "/job:localhost/replica:0/task:0"));
   device_ = device_mgr_->ListDevices()[0];
   CHECK(device_) << "Could not create a " << device << " device";
@@ -88,7 +86,7 @@ Benchmark::Benchmark(const string& device, Graph* g,
 
   const int graph_def_version = g->versions().producer();
 
-  flib_def_ = absl::make_unique<FunctionLibraryDefinition>(g->flib_def());
+  flib_def_ = std::make_unique<FunctionLibraryDefinition>(g->flib_def());
 
   pflr_ = std::unique_ptr<ProcessFunctionLibraryRuntime>(
       new ProcessFunctionLibraryRuntime(
@@ -123,7 +121,8 @@ Benchmark::Benchmark(const string& device, Graph* g,
   TF_CHECK_OK(NewExecutor(executor_type, params, *g, &exec_));
 }
 
-Benchmark::Benchmark(const string& device, Graph* g, bool old_benchmark_api)
+Benchmark::Benchmark(const std::string& device, Graph* g,
+                     bool old_benchmark_api)
     : Benchmark(device, g, nullptr, nullptr, nullptr, "", old_benchmark_api) {}
 
 Benchmark::~Benchmark() {
@@ -139,30 +138,28 @@ Benchmark::~Benchmark() {
   }
 }
 
-
-void Benchmark::Run(::testing::benchmark::State& state) {
+void Benchmark::Run(benchmark::State& state) {
   RunWithRendezvousArgs({}, {}, state);
 }
 
-string GetRendezvousKey(const Node* node) {
-  string send_device;
+std::string GetRendezvousKey(const Node* node) {
+  std::string send_device;
   TF_CHECK_OK(GetNodeAttr(node->attrs(), "send_device", &send_device));
-  string recv_device;
+  std::string recv_device;
   TF_CHECK_OK(GetNodeAttr(node->attrs(), "recv_device", &recv_device));
-  string tensor_name;
+  std::string tensor_name;
   TF_CHECK_OK(GetNodeAttr(node->attrs(), "tensor_name", &tensor_name));
-  uint64 send_device_incarnation;
-  TF_CHECK_OK(GetNodeAttr(node->attrs(), "send_device_incarnation",
-                          reinterpret_cast<int64*>(&send_device_incarnation)));
+  uint64_t send_device_incarnation;
+  TF_CHECK_OK(
+      GetNodeAttr(node->attrs(), "send_device_incarnation",
+                  reinterpret_cast<int64_t*>(&send_device_incarnation)));
   return Rendezvous::CreateKey(send_device, send_device_incarnation,
                                recv_device, tensor_name, FrameAndIter(0, 0));
 }
 
 void Benchmark::RunWithRendezvousArgs(
-    const std::vector<std::pair<string, Tensor>>& inputs,
-    const std::vector<string>& outputs, ::testing::benchmark::State& state) {
-  CHECK(!old_benchmark_api_)
-      << "This method should only be called with new benchmark API";
+    const std::vector<std::pair<std::string, Tensor>>& inputs,
+    const std::vector<std::string>& outputs, benchmark::State& state) {
   if (!device_ || state.max_iterations == 0) {
     return;
   }
@@ -183,7 +180,7 @@ void Benchmark::RunWithRendezvousArgs(
       TF_CHECK_OK(rendez_->Send(parsed, Rendezvous::Args(), p.second, false));
     }
     TF_CHECK_OK(exec_->Run(args));
-    for (const string& key : outputs) {
+    for (const std::string& key : outputs) {
       Rendezvous::ParsedKey parsed;
       TF_CHECK_OK(Rendezvous::ParseKey(key, &parsed));
       TF_CHECK_OK(rendez_->Recv(parsed, Rendezvous::Args(), &unused, &is_dead));
@@ -201,7 +198,7 @@ void Benchmark::RunWithRendezvousArgs(
       TF_CHECK_OK(rendez_->Send(parsed, Rendezvous::Args(), p.second, false));
     }
     TF_CHECK_OK(exec_->Run(args));
-    for (const string& key : outputs) {
+    for (const std::string& key : outputs) {
       Rendezvous::ParsedKey parsed;
       TF_CHECK_OK(Rendezvous::ParseKey(key, &parsed));
       TF_CHECK_OK(rendez_->Recv(parsed, Rendezvous::Args(), &unused, &is_dead));

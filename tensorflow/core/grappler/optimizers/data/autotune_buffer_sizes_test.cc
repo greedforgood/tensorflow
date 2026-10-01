@@ -28,8 +28,8 @@ namespace tensorflow {
 namespace grappler {
 namespace {
 
-Status OptimizeWithAutotuneBufferSizes(const GrapplerItem &item,
-                                       GraphDef *output, bool autotune) {
+absl::Status OptimizeWithAutotuneBufferSizes(const GrapplerItem &item,
+                                             GraphDef *output, bool autotune) {
   AutotuneBufferSizes optimizer;
   RewriterConfig_CustomGraphOptimizer config;
   if (autotune) {
@@ -41,10 +41,10 @@ Status OptimizeWithAutotuneBufferSizes(const GrapplerItem &item,
   return optimizer.Optimize(nullptr, item, output);
 }
 
-class SimpleInject : public ::testing::TestWithParam<string> {};
+class SimpleInject : public ::testing::TestWithParam<std::string> {};
 
 TEST_P(SimpleInject, AutotuneBufferSizesTest) {
-  const string async_dataset = GetParam();
+  const std::string async_dataset = GetParam();
   using test::function::NDef;
   GrapplerItem item;
   if (async_dataset == "map") {
@@ -148,33 +148,34 @@ TEST_P(AutotuneSetting, AutotuneBufferSizesTest) {
             autotune);
 }
 
-class MultipleNodes : public ::testing::TestWithParam<std::tuple<bool, int64>> {
-};
+class MultipleNodes
+    : public ::testing::TestWithParam<std::tuple<bool, int64_t>> {};
 
 TEST_P(MultipleNodes, AutotuneBufferSizesTest) {
   const bool legacy_autotune = std::get<0>(GetParam());
-  const int64 initial_buffer_size = std::get<1>(GetParam());
+  const int64_t initial_buffer_size = std::get<1>(GetParam());
 
   GrapplerItem item;
   MutableGraphView graph(&item.graph);
 
-  NodeDef *start_val = graph_utils::AddScalarConstNode<int64>(0, &graph);
-  NodeDef *stop_val = graph_utils::AddScalarConstNode<int64>(10, &graph);
-  NodeDef *step_val = graph_utils::AddScalarConstNode<int64>(1, &graph);
+  NodeDef *start_val = graph_utils::AddScalarConstNode<int64_t>(0, &graph);
+  NodeDef *stop_val = graph_utils::AddScalarConstNode<int64_t>(10, &graph);
+  NodeDef *step_val = graph_utils::AddScalarConstNode<int64_t>(1, &graph);
 
-  std::vector<string> range_inputs(3);
+  std::vector<std::string> range_inputs(3);
   range_inputs[0] = start_val->name();
   range_inputs[1] = stop_val->name();
   range_inputs[2] = step_val->name();
-  std::vector<std::pair<string, AttrValue>> range_attrs;
+  std::vector<std::pair<std::string, AttrValue>> range_attrs;
   NodeDef *range_node = graph_utils::AddNode("range", "RangeDataset",
                                              range_inputs, range_attrs, &graph);
 
-  NodeDef *parallelism_val = graph_utils::AddScalarConstNode<int64>(1, &graph);
-  std::vector<string> map_inputs1(2);
+  NodeDef *parallelism_val =
+      graph_utils::AddScalarConstNode<int64_t>(1, &graph);
+  std::vector<std::string> map_inputs1(2);
   map_inputs1[0] = range_node->name();
   map_inputs1[1] = parallelism_val->name();
-  std::vector<std::pair<string, AttrValue>> map_attrs(4);
+  std::vector<std::pair<std::string, AttrValue>> map_attrs(4);
   AttrValue attr_val;
   SetAttrValue("value", &attr_val);
   map_attrs[0] = std::make_pair("f", attr_val);
@@ -185,11 +186,11 @@ TEST_P(MultipleNodes, AutotuneBufferSizesTest) {
                                             map_inputs1, map_attrs, &graph);
 
   NodeDef *buffer_size_val =
-      graph_utils::AddScalarConstNode<int64>(initial_buffer_size, &graph);
-  std::vector<string> prefetch_inputs(2);
+      graph_utils::AddScalarConstNode<int64_t>(initial_buffer_size, &graph);
+  std::vector<std::string> prefetch_inputs(2);
   prefetch_inputs[0] = map_node1->name();
   prefetch_inputs[1] = buffer_size_val->name();
-  std::vector<std::pair<string, AttrValue>> prefetch_attrs(4);
+  std::vector<std::pair<std::string, AttrValue>> prefetch_attrs(4);
   AttrValue legacy_autotune_attr;
   SetAttrValue(legacy_autotune, &legacy_autotune_attr);
   AttrValue buffer_size_min_attr;
@@ -201,13 +202,13 @@ TEST_P(MultipleNodes, AutotuneBufferSizesTest) {
   NodeDef *prefetch_node = graph_utils::AddNode(
       "prefetch", "PrefetchDataset", prefetch_inputs, prefetch_attrs, &graph);
 
-  std::vector<string> map_inputs2(2);
+  std::vector<std::string> map_inputs2(2);
   map_inputs2[0] = prefetch_node->name();
   map_inputs2[1] = parallelism_val->name();
   NodeDef *map_node2 = graph_utils::AddNode("map2", "ParallelMapDatasetV2",
                                             map_inputs2, map_attrs, &graph);
 
-  std::vector<string> map_inputs3(1);
+  std::vector<std::string> map_inputs3(1);
   map_inputs3[0] = map_node2->name();
   graph_utils::AddNode("map3", "MapDataset", map_inputs3, map_attrs, &graph);
 

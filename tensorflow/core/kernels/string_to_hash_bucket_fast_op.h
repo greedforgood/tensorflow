@@ -26,7 +26,7 @@ limitations under the License.
 
 namespace tensorflow {
 
-template <uint64 hash(StringPiece)>
+template <uint64_t hash(absl::string_view)>
 class StringToHashBucketOp : public OpKernel {
  public:
   explicit StringToHashBucketOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
@@ -42,23 +42,24 @@ class StringToHashBucketOp : public OpKernel {
     OP_REQUIRES_OK(context,
                    context->allocate_output("output", input_tensor->shape(),
                                             &output_tensor));
-    auto output_flat = output_tensor->flat<int64>();
+    auto output_flat = output_tensor->flat<int64_t>();
 
     typedef decltype(input_flat.size()) Index;
     for (Index i = 0; i < input_flat.size(); ++i) {
-      const uint64 input_hash = hash(input_flat(i));
-      const uint64 bucket_id = input_hash % num_buckets_;
+      const uint64_t input_hash = hash(input_flat(i));
+      const uint64_t bucket_id = input_hash % num_buckets_;
       // The number of buckets is always in the positive range of int64 so is
       // the resulting bucket_id. Casting the bucket_id from uint64 to int64 is
       // safe.
-      output_flat(i) = static_cast<int64>(bucket_id);
+      output_flat(i) = static_cast<int64_t>(bucket_id);
     }
   }
 
  private:
-  int64 num_buckets_;
+  int64_t num_buckets_;
 
-  TF_DISALLOW_COPY_AND_ASSIGN(StringToHashBucketOp);
+  StringToHashBucketOp(const StringToHashBucketOp&) = delete;
+  void operator=(const StringToHashBucketOp&) = delete;
 };
 
 }  // namespace tensorflow

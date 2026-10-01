@@ -14,10 +14,6 @@
 # ==============================================================================
 """Functional tests for tensor_util."""
 
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import contextlib
 import sys
 
@@ -34,8 +30,11 @@ from tensorflow.python.framework import tensor_shape
 from tensorflow.python.framework import tensor_util
 from tensorflow.python.framework import test_util
 from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import array_ops_stack
 from tensorflow.python.ops import gen_state_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import shape_util
+from tensorflow.python.ops import variable_v1
 from tensorflow.python.ops import variables
 from tensorflow.python.ops.ragged import ragged_factory_ops
 from tensorflow.python.platform import test
@@ -229,12 +228,24 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
 
   def testHalf(self):
     t = tensor_util.make_tensor_proto(np.array([10.0, 20.0], dtype=np.float16))
-    self.assertProtoEquals(
-        """
-      dtype: DT_HALF
-      tensor_shape { dim { size: 2 } }
-      tensor_content: "\000I\000M"
-      """, t)
+    if sys.byteorder == "big":
+      self.assertProtoEquals(
+          """
+        dtype: DT_HALF
+        tensor_shape { dim { size: 2 } }
+        tensor_content: "I\000M\000"
+        """,
+          t,
+      )
+    else:
+      self.assertProtoEquals(
+          """
+        dtype: DT_HALF
+        tensor_shape { dim { size: 2 } }
+        tensor_content: "\000I\000M"
+        """,
+          t,
+      )
 
     a = tensor_util.MakeNdarray(t)
     self.assertEqual(np.float16, a.dtype)
@@ -243,33 +254,317 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
   def testBfloat16(self):
     test_type = dtypes.bfloat16.as_numpy_dtype
     t = tensor_util.make_tensor_proto(np.array([10.0, 20.0], dtype=test_type))
-    # 10.0: 16672 = 010000010(130) 0100000: (1+0/2+1/4) * 2^(130-127)
-    # 20.0: 16800 = 010000011(131) 0100000: (1+0/2+1/4) * 2^(131-127)
-    self.assertProtoEquals("""
-      dtype: DT_BFLOAT16
+    if sys.byteorder == "big":
+      self.assertProtoEquals(
+          """
+        dtype: DT_BFLOAT16
+        tensor_shape {
+          dim {
+            size: 2
+          }
+      }
+      tensor_content: "\x41\x20\x41\x5C\x32\x34\x30"
+      """,
+          t,
+      )
+    else:
+      self.assertProtoEquals(
+          """
+        dtype: DT_BFLOAT16
+        tensor_shape {
+          dim {
+            size: 2
+          }
+        }
+      tensor_content: "\x20\x41\x5C\x32\x34\x30\x41"
+      """,
+          t,
+      )
+
+    a = tensor_util.MakeNdarray(t)
+    self.assertEqual(test_type, a.dtype)
+    self.assertAllClose(np.array([10.0, 20.0], dtype=test_type), a)
+
+  def testFloat8e5m2(self):
+    test_type = dtypes.float8_e5m2.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(np.array([10.0, 20.0], dtype=test_type))
+    # 10.0: "I" = 73 = 10010 01: 2^(18 - 15) * (1 + 1/4)
+    # 20.0: "M" = 77 = 10011 01: 2^(19 - 15) * (1 + 1/4)
+    self.assertProtoEquals(
+        """
+      dtype: DT_FLOAT8_E5M2
       tensor_shape {
         dim {
           size: 2
         }
       }
-      half_val: 16672
-      half_val: 16800
+      tensor_content: "IM"
       """, t)
 
     a = tensor_util.MakeNdarray(t)
     self.assertEqual(test_type, a.dtype)
     self.assertAllClose(np.array([10.0, 20.0], dtype=test_type), a)
 
+  def testFloat8e4m3fn(self):
+    test_type = dtypes.float8_e4m3fn.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(np.array([10.0, 20.0], dtype=test_type))
+    # 10.0: "R" = 82 = 1010 010: 2^(10 - 7) * (1 + 1/4)
+    # 20.0: "Z" = 90 = 1011 010: 2^(11 - 7) * (1 + 1/4)
+    self.assertProtoEquals(
+        """
+      dtype: DT_FLOAT8_E4M3FN
+      tensor_shape {
+        dim {
+          size: 2
+        }
+      }
+      tensor_content: "RZ"
+      """, t)
+
+  def testFloat8e4m3fnuz(self):
+    test_type = dtypes.float8_e4m3fnuz.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(np.array([10.0, 20.0], dtype=test_type))
+    # 10.0: "Z" = 90 = 1010 010: 2^(10 - 7) * (1 + 1/4) + 8
+    # 20.0: "b" = 98 = 1011 010: 2^(11 - 7) * (1 + 1/4) + 8
+    self.assertProtoEquals(
+        """
+      dtype: DT_FLOAT8_E4M3FNUZ
+      tensor_shape {
+        dim {
+          size: 2
+        }
+      }
+      tensor_content: "Zb"
+      """,
+        t,
+    )
+
+  def testFloat8e4m3b11fnuz(self):
+    test_type = dtypes.float8_e4m3b11fnuz.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(np.array([10.0, 20.0], dtype=test_type))
+    # 10.0: "r" = 114 = 1010 010: 2^(10 - 7) * (1 + 1/4) + 36
+    # 20.0: "z" = 126 = 1011 010: 2^(11 - 7) * (1 + 1/4) + 36
+    self.assertProtoEquals(
+        """
+      dtype: DT_FLOAT8_E4M3B11FNUZ
+      tensor_shape {
+        dim {
+          size: 2
+        }
+      }
+      tensor_content: "rz"
+      """,
+        t,
+    )
+
+  def testFloat8e5m2fnuz(self):
+    test_type = dtypes.float8_e5m2fnuz.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(np.array([10.0, 20.0], dtype=test_type))
+    # 10.0: "M" = 77 = 1010 010: 2^(10 - 7) * (1 + 1/4) - 3
+    # 20.0: "Q" = 87 = 1011 010: 2^(11 - 7) * (1 + 1/4) - 3
+    self.assertProtoEquals(
+        """
+      dtype: DT_FLOAT8_E5M2FNUZ
+      tensor_shape {
+        dim {
+          size: 2
+        }
+      }
+      tensor_content: "MQ"
+      """,
+        t,
+    )
+
+  def testFloat8e8m0fnu(self):
+    test_type = dtypes.float8_e8m0fnu.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(np.array([1.0, 2.0], dtype=test_type))
+    # 1.0: 0x7F = 127 = 2^(127 - 127)
+    # 2.0: 0x80 = 128 = 2^(128 - 127)
+    expected_bytes = r"\x7f\x80"
+    self.assertProtoEquals(
+        f"""
+      dtype: DT_FLOAT8_E8M0FNU
+      tensor_shape {{
+        dim {{
+          size: 2
+        }}
+      }}
+      tensor_content: "{expected_bytes}"
+      """,
+        t,
+    )
+
+  def testFloat8e4m3fnuzScalarRoundTrip(self):
+    test_type = dtypes.float8_e4m3fnuz.as_numpy_dtype
+    # A scalar stores the value in float8_val (a multi-element array would use
+    # tensor_content and hide the decode gap).
+    t = tensor_util.make_tensor_proto(np.array(10.0, dtype=test_type))
+    a = tensor_util.MakeNdarray(t)
+    self.assertEqual(test_type, a.dtype)
+    self.assertAllClose(np.array(10.0, dtype=test_type), a)
+
+  def testFloat8e4m3b11fnuzScalarRoundTrip(self):
+    test_type = dtypes.float8_e4m3b11fnuz.as_numpy_dtype
+    # A scalar stores the value in float8_val (a multi-element array would use
+    # tensor_content and hide the decode gap).
+    t = tensor_util.make_tensor_proto(np.array(10.0, dtype=test_type))
+    a = tensor_util.MakeNdarray(t)
+    self.assertEqual(test_type, a.dtype)
+    self.assertAllClose(np.array(10.0, dtype=test_type), a)
+
+  def testFloat8e5m2fnuzScalarRoundTrip(self):
+    test_type = dtypes.float8_e5m2fnuz.as_numpy_dtype
+    # A scalar stores the value in float8_val (a multi-element array would use
+    # tensor_content and hide the decode gap).
+    t = tensor_util.make_tensor_proto(np.array(10.0, dtype=test_type))
+    a = tensor_util.MakeNdarray(t)
+    self.assertEqual(test_type, a.dtype)
+    self.assertAllClose(np.array(10.0, dtype=test_type), a)
+
+  def testFloat8e8m0fnuScalarRoundTrip(self):
+    test_type = dtypes.float8_e8m0fnu.as_numpy_dtype
+    # A scalar stores the value in float8_val (a multi-element array would use
+    # tensor_content and hide the decode gap).
+    t = tensor_util.make_tensor_proto(np.array(2.0, dtype=test_type))
+    a = tensor_util.MakeNdarray(t)
+    self.assertEqual(test_type, a.dtype)
+    self.assertAllClose(np.array(2.0, dtype=test_type), a)
+
+  def testFloat4e2m1fn(self):
+    test_type = dtypes.float4_e2m1fn.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(np.array([6, 0.5], dtype=test_type))
+    # 0x7 = 011 1 = 2^(3-1) x (1+0.5) = 6
+    # 0x1 = 000 1 = 2^(0) x 0.5 = 0.5
+    expected_bytes = r"\x07\x01"
+    self.assertProtoEquals(
+        f"""
+      dtype: DT_FLOAT4_E2M1FN
+      tensor_shape {{
+        dim {{
+          size: 2
+        }}
+      }}
+      tensor_content: "{expected_bytes}"
+      """,
+        t,
+    )
+
+    a = tensor_util.MakeNdarray(t)
+    self.assertEqual(test_type, a.dtype)
+    self.assertAllClose(np.array([6, 0.5], dtype=test_type), a)
+
   def testInt(self):
     t = tensor_util.make_tensor_proto(10)
-    self.assertProtoEquals("""
+    self.assertProtoEquals(
+        """
       dtype: DT_INT32
       tensor_shape {}
       int_val: 10
-      """, t)
+      """,
+        t,
+    )
     a = tensor_util.MakeNdarray(t)
     self.assertEqual(np.int32, a.dtype)
     self.assertAllClose(np.array(10, dtype=np.int32), a)
+
+  def testInt4(self):
+    test_type = dtypes.int4.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(
+        np.array(
+            [-8, -1, 0, 1, 7],
+            dtype=test_type,
+        )
+    )
+    #
+    self.assertProtoEquals(
+        """
+      dtype: DT_INT4
+      tensor_shape {
+        dim {
+          size: 5
+        }
+      }
+      int_val: -8
+      int_val: -1
+      int_val: 0
+      int_val: 1
+      int_val: 7
+      """,
+        t,
+    )
+
+  def testUInt4(self):
+    test_type = dtypes.uint4.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(
+        np.array(
+            [0, 1, 7, 8, 15],
+            dtype=test_type,
+        )
+    )
+    self.assertProtoEquals(
+        """
+      dtype: DT_UINT4
+      tensor_shape {
+        dim {
+          size: 5
+        }
+      }
+      int_val: 0
+      int_val: 1
+      int_val: 7
+      int_val: 8
+      int_val: 15
+      """,
+        t,
+    )
+
+  def testInt2(self):
+    test_type = dtypes.int2.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(
+        np.array(
+            [-2, -1, 0, 1],
+            dtype=test_type,
+        )
+    )
+    self.assertProtoEquals(
+        """
+      dtype: DT_INT2
+      tensor_shape {
+        dim {
+          size: 4
+        }
+      }
+      int_val: -2
+      int_val: -1
+      int_val: 0
+      int_val: 1
+      """,
+        t,
+    )
+
+  def testUInt2(self):
+    test_type = dtypes.uint2.as_numpy_dtype
+    t = tensor_util.make_tensor_proto(
+        np.array(
+            [0, 1, 2, 3],
+            dtype=test_type,
+        )
+    )
+    self.assertProtoEquals(
+        """
+      dtype: DT_UINT2
+      tensor_shape {
+        dim {
+          size: 4
+        }
+      }
+      int_val: 0
+      int_val: 1
+      int_val: 2
+      int_val: 3
+      """,
+        t,
+    )
 
   def testLargeInt(self):
     value = np.iinfo(np.int64).max
@@ -518,7 +813,7 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
       string_val: "foo"
       """, t)
     a = tensor_util.MakeNdarray(t)
-    self.assertEqual(np.object, a.dtype)
+    self.assertEqual(np.object_, a.dtype)
     self.assertEqual([b"foo"], a)
 
   def testStringWithImplicitRepeat(self):
@@ -527,7 +822,7 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
     self.assertAllEqual(
         np.array([[b"f", b"g", b"g", b"g"], [b"g", b"g", b"g", b"g"],
                   [b"g", b"g", b"g", b"g"]],
-                 dtype=np.object), a)
+                 dtype=np.object_), a)
 
   def testStringN(self):
     t = tensor_util.make_tensor_proto([b"foo", b"bar", b"baz"], shape=[1, 3])
@@ -539,7 +834,7 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
       string_val: "baz"
       """, t)
     a = tensor_util.MakeNdarray(t)
-    self.assertEqual(np.object, a.dtype)
+    self.assertEqual(np.object_, a.dtype)
     self.assertAllEqual(np.array([[b"foo", b"bar", b"baz"]]), a)
 
   def testStringNpArray(self):
@@ -554,14 +849,15 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
       string_val: "abcd"
       """, t)
     a = tensor_util.MakeNdarray(t)
-    self.assertEqual(np.object, a.dtype)
+    self.assertEqual(np.object_, a.dtype)
     self.assertAllEqual(np.array([[b"a", b"ab"], [b"abc", b"abcd"]]), a)
 
   def testArrayMethod(self):
 
     class Wrapper(object):
 
-      def __array__(self):
+      def __array__(self, dtype=None):
+        del dtype
         return np.array([b"foo", b"bar", b"baz"])
 
     t = tensor_util.make_tensor_proto(Wrapper(), shape=[1, 3])
@@ -573,16 +869,19 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
       string_val: "baz"
       """, t)
     a = tensor_util.MakeNdarray(t)
-    self.assertEqual(np.object, a.dtype)
+    self.assertEqual(np.object_, a.dtype)
     self.assertAllEqual(np.array([[b"foo", b"bar", b"baz"]]), a)
 
   def testArrayInterface(self):
 
     class Wrapper(object):
 
+      def __init__(self):
+        self.a = np.array([b"foo", b"bar", b"baz"])
+
       @property
       def __array_interface__(self):
-        return np.array([b"foo", b"bar", b"baz"]).__array_interface__
+        return self.a.__array_interface__
 
     t = tensor_util.make_tensor_proto(Wrapper(), shape=[1, 3])
     self.assertProtoEquals("""
@@ -593,7 +892,7 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
       string_val: "baz"
       """, t)
     a = tensor_util.MakeNdarray(t)
-    self.assertEqual(np.object, a.dtype)
+    self.assertEqual(np.object_, a.dtype)
     self.assertAllEqual(np.array([[b"foo", b"bar", b"baz"]]), a)
 
   def testStringTuple(self):
@@ -607,7 +906,7 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
       string_val: "abcd"
       """, t)
     a = tensor_util.MakeNdarray(t)
-    self.assertEqual(np.object, a.dtype)
+    self.assertEqual(np.object_, a.dtype)
     self.assertAllEqual(np.array((b"a", b"ab", b"abc", b"abcd")), a)
 
   def testStringNestedTuple(self):
@@ -621,7 +920,7 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
       string_val: "abcd"
       """, t)
     a = tensor_util.MakeNdarray(t)
-    self.assertEqual(np.object, a.dtype)
+    self.assertEqual(np.object_, a.dtype)
     self.assertAllEqual(np.array(((b"a", b"ab"), (b"abc", b"abcd"))), a)
 
   def testComplex64(self):
@@ -762,7 +1061,7 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
 
     # Validate the helpful error message when trying to convert an
     # unconvertible list as strings.
-    with self.assertRaisesRegex(TypeError, "Failed to convert object"):
+    with self.assertRaisesRegex(TypeError, "Failed to convert elements"):
       tensor_util.make_tensor_proto([tensor_shape.Dimension(1)])
 
   def testTensorShapeVerification(self):
@@ -795,6 +1094,21 @@ class TensorUtilTest(test.TestCase, parameterized.TestCase):
     self.assertFalse(tensor_util.ShapeEquals(t, [5, 3]))
     self.assertFalse(tensor_util.ShapeEquals(t, [1, 4]))
     self.assertFalse(tensor_util.ShapeEquals(t, [4]))
+    self.assertFalse(tensor_util.ShapeEquals(t, [2]))
+    self.assertFalse(tensor_util.ShapeEquals(t, []))
+    self.assertFalse(tensor_util.ShapeEquals(t, [2, 2, 1]))
+
+  def testNonNativeByteOrder(self):
+    for dtype in [np.int32, np.float32, np.int64]:
+      arr = np.array([1, 2, 3], dtype=dtype)
+      arr_swapped = arr.astype(arr.dtype.newbyteorder("S"))
+      self.assertFalse(arr_swapped.dtype.isnative)
+
+      t = tensor_util.make_tensor_proto(arr_swapped)
+      a = tensor_util.MakeNdarray(t)
+      self.assertTrue(a.dtype.isnative)
+      self.assertEqual(arr.dtype.type, a.dtype.type)
+      self.assertAllClose(arr, a)
 
 
 @test_util.run_all_in_graph_and_eager_modes
@@ -933,13 +1247,13 @@ class ConstantValueTest(test.TestCase):
   def testPack_Axis0(self):
     inputs = [np.random.rand(4, 7) for _ in range(3)]
     np_val = np.array(inputs)
-    tf_val = array_ops.stack(inputs)
+    tf_val = array_ops_stack.stack(inputs)
     c_val = tensor_util.constant_value(tf_val)
     self.assertAllClose(np_val, c_val)
 
     # This test needs a placeholder which means we need to construct a graph.
     with ops.Graph().as_default():
-      tf_val = array_ops.stack(
+      tf_val = array_ops_stack.stack(
           [inputs[0],
            array_ops.placeholder(dtypes.float32), inputs[2]])
       c_val = tensor_util.constant_value(tf_val)
@@ -949,11 +1263,11 @@ class ConstantValueTest(test.TestCase):
     # This test needs a placeholder which means we need to construct a graph.
     with ops.Graph().as_default():
       inputs = [np.random.rand(4, 7) for _ in range(3)]
-      tf_val = array_ops.stack(inputs, axis=1)
+      tf_val = array_ops_stack.stack(inputs, axis=1)
       c_val = tensor_util.constant_value(tf_val)
       self.assertIsNone(c_val)
 
-      tf_val = array_ops.stack(
+      tf_val = array_ops_stack.stack(
           [inputs[0],
            array_ops.placeholder(dtypes.float32), inputs[2]], axis=1)
       c_val = tensor_util.constant_value(tf_val)
@@ -963,7 +1277,8 @@ class ConstantValueTest(test.TestCase):
     input_ = np.random.rand(4, 7)
     # This test needs a placeholder which means we need to construct a graph.
     with ops.Graph().as_default():
-      tf_val = array_ops.stack([input_, array_ops.placeholder(dtypes.float32)])
+      tf_val = array_ops_stack.stack(
+          [input_, array_ops.placeholder(dtypes.float32)])
       c_val = tensor_util.constant_value(tf_val, partial=True)
       self.assertAllClose(input_, c_val[0])
       self.assertIsNone(c_val[1])
@@ -972,14 +1287,14 @@ class ConstantValueTest(test.TestCase):
     input_ = np.random.rand(4, 7)
     # This test needs a placeholder which means we need to construct a graph.
     with ops.Graph().as_default():
-      tf_val = array_ops.stack(
+      tf_val = array_ops_stack.stack(
           [input_, array_ops.placeholder(dtypes.float32)], axis=1)
       c_val = tensor_util.constant_value(tf_val, partial=True)
       self.assertIsNone(c_val)
 
   def testUnpack_Axis0(self):
     inputs = np.random.rand(3, 4, 7)
-    tf_vals = array_ops.unstack(inputs)
+    tf_vals = array_ops_stack.unstack(inputs)
     c_vals = [tensor_util.constant_value(x) for x in tf_vals]
     self.assertAllClose(inputs, c_vals)
 
@@ -987,8 +1302,9 @@ class ConstantValueTest(test.TestCase):
     input_ = np.random.rand(4, 7)
     # This test needs a placeholder which means we need to construct a graph.
     with ops.Graph().as_default():
-      packed = array_ops.stack([input_, array_ops.placeholder(dtypes.float32)])
-      tf_vals = array_ops.unstack(packed)
+      packed = array_ops_stack.stack(
+          [input_, array_ops.placeholder(dtypes.float32)])
+      tf_vals = array_ops_stack.unstack(packed)
       c_vals = [tensor_util.constant_value(x, partial=True) for x in tf_vals]
       self.assertAllClose(input_, c_vals[0])
       self.assertIsNone(c_vals[1])
@@ -1005,7 +1321,7 @@ class ConstantValueTest(test.TestCase):
     with ops.Graph().as_default():
       placeholder = array_ops.placeholder(dtypes.float32, shape=(4, 7))
       # it'd be better to use concat here, but concat doesn't support partial
-      packed = array_ops.stack([input_, placeholder])
+      packed = array_ops_stack.stack([input_, placeholder])
       tf_vals = array_ops.split(packed, 2)
       c_vals = [tensor_util.constant_value(x, partial=True) for x in tf_vals]
       self.assertAllClose(input_, c_vals[0][0])
@@ -1066,7 +1382,7 @@ class ConstantValueTest(test.TestCase):
     self.assertIsNone(tensor_util.constant_value(var))
 
   def testVariableV1(self):
-    var = variables.VariableV1(1.0, name="variable_node")
+    var = variable_v1.VariableV1(1.0, name="variable_node")
     self.assertIsNone(tensor_util.constant_value(var))
 
 
@@ -1114,7 +1430,7 @@ class ConstantValueAsShapeTest(test.TestCase):
   def testPack(self):
     # This test needs a placeholder which means we need to construct a graph.
     with ops.Graph().as_default():
-      tf_val = array_ops.stack(
+      tf_val = array_ops_stack.stack(
           [constant_op.constant(16), 37,
            array_ops.placeholder(dtypes.int32)])
       c_val = tensor_util.constant_value_as_shape(tf_val)
@@ -1220,12 +1536,12 @@ class MaybeSetStaticShapeTest(test.TestCase):
 
   @contextlib.contextmanager
   def disableSetStaticShape(self):
-    flag_old = tensor_util._ENABLE_MAYBE_SET_STATIC_SHAPE
-    tensor_util._ENABLE_MAYBE_SET_STATIC_SHAPE = False
+    flag_old = shape_util._ENABLE_MAYBE_SET_STATIC_SHAPE
+    shape_util._ENABLE_MAYBE_SET_STATIC_SHAPE = False
     try:
       yield
     finally:
-      tensor_util._ENABLE_MAYBE_SET_STATIC_SHAPE = flag_old
+      shape_util._ENABLE_MAYBE_SET_STATIC_SHAPE = flag_old
 
   def testMaybeSetStaticShape(self):
     shape = constant_op.constant([2, 5], dtype=dtypes.int32)
@@ -1267,7 +1583,7 @@ class ShapeTensorTest(test_util.TensorFlowTestCase):
   def testConversion(self):
     """Make sure fully known TensorShape objects convert to Tensors."""
     shape = tensor_shape.TensorShape([1, tensor_shape.Dimension(2)])
-    shape_tensor = tensor_util.shape_tensor(shape)
+    shape_tensor = shape_util.shape_tensor(shape)
     self.assertAllEqual((1, 2), shape_tensor)
 
 

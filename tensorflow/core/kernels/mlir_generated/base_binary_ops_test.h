@@ -16,6 +16,9 @@ limitations under the License.
 #ifndef TENSORFLOW_CORE_KERNELS_MLIR_GENERATED_BASE_BINARY_OPS_TEST_H_
 #define TENSORFLOW_CORE_KERNELS_MLIR_GENERATED_BASE_BINARY_OPS_TEST_H_
 
+#include <string>
+#include <vector>
+
 #include "absl/container/inlined_vector.h"
 #include "absl/strings/string_view.h"
 #include "llvm/ADT/STLExtras.h"
@@ -132,7 +135,7 @@ class BinaryOpsTestBase : public OpsTestBase {
                        BaselineOutT (*baseline_callback)(BaselineT, BaselineT),
                        const test::OpsTestConfig& config) {
     // Prepare inputs.
-    int input_size = shape.num_elements();
+    int64_t input_size = shape.num_elements();
     CHECK(lhs_input.size() <= input_size && rhs_input.size() <= input_size &&
           "expect input shape to hold all input values");
     auto repeated_lhs_input =
@@ -375,7 +378,7 @@ class BinaryOpsTestBase : public OpsTestBase {
       std::vector<int> rhs_indices, absl::InlinedVector<T, 10> rhs_input,
       BaselineOutT (*baseline_callback)(BaselineT, BaselineT)) {
     absl::InlinedVector<OutT, 10> expected_output;
-    for (int i = 0; i < lhs_indices.size(); i++) {
+    for (int64_t i = 0; i < lhs_indices.size(); i++) {
       auto lhs = static_cast<BaselineT>(lhs_input[lhs_indices[i]]);
       auto rhs = static_cast<BaselineT>(rhs_input[rhs_indices[i]]);
       auto result = static_cast<OutT>(baseline_callback(lhs, rhs));
@@ -388,14 +391,25 @@ class BinaryOpsTestBase : public OpsTestBase {
 // Macros to easily generate common test cases. The macros use `BinaryOpsTest`
 // fixture in order to share implementation across GPU and CPU platform tests.
 // For specific inputs, please define your own test fixtures.
+#define GENERATE_DEFAULT_NO_BROADCASTING_TESTS_2(                            \
+    op_name, test_name, T, BaselineT, OutT, BaselineOutT, lhs_input,         \
+    rhs_input, baseline_callback, config)                                    \
+  TEST_F(BinaryOpsTest, op_name##EqShapes##test_name) {                      \
+    TestEqualShapes<T, BaselineT, OutT, BaselineOutT>(                       \
+        #op_name, /*shape=*/test::DefaultInputShape(), lhs_input, rhs_input, \
+        baseline_callback, config);                                          \
+  }                                                                          \
+  TEST_F(BinaryOpsTest, op_name##IncompatibleShapes##test_name) {            \
+    TestIncompatibleShapes<T, OutT>(#op_name, lhs_input, rhs_input, config); \
+  }
+
 #define GENERATE_DEFAULT_TESTS_2(op_name, test_name, T, BaselineT, OutT,      \
                                  BaselineOutT, lhs_input, rhs_input,          \
                                  baseline_callback, config)                   \
-  TEST_F(BinaryOpsTest, op_name##EqShapes##test_name) {                       \
-    TestEqualShapes<T, BaselineT, OutT, BaselineOutT>(                        \
-        #op_name, /*shape=*/test::DefaultInputShape(), lhs_input, rhs_input,  \
-        baseline_callback, config);                                           \
-  }                                                                           \
+                                                                              \
+  GENERATE_DEFAULT_NO_BROADCASTING_TESTS_2(                                   \
+      op_name, test_name, T, BaselineT, OutT, BaselineOutT, lhs_input,        \
+      rhs_input, baseline_callback, config)                                   \
                                                                               \
   TEST_F(BinaryOpsTest, op_name##OneScalar##test_name) {                      \
     TestOneScalar<T, BaselineT, OutT, BaselineOutT>(                          \
@@ -409,10 +423,6 @@ class BinaryOpsTestBase : public OpsTestBase {
         #op_name, /*scalar_input=*/lhs_input.front(),                         \
         /*other_shape=*/test::DefaultInputShape(), /*other_input=*/rhs_input, \
         baseline_callback, config);                                           \
-  }                                                                           \
-                                                                              \
-  TEST_F(BinaryOpsTest, op_name##IncompatibleShapes##test_name) {             \
-    TestIncompatibleShapes<T, OutT>(#op_name, lhs_input, rhs_input, config);  \
   }                                                                           \
                                                                               \
   TEST_F(BinaryOpsTest, op_name##BroadcastingExpand##test_name) {             \
@@ -451,6 +461,13 @@ class BinaryOpsTestBase : public OpsTestBase {
     config)                                                                 \
   GENERATE_DEFAULT_TESTS_2(op_name, test_name, T, T, OutT, OutT, lhs_input, \
                            rhs_input, baseline_callback, config)
+
+#define GENERATE_DEFAULT_NO_BROADCASTING_TESTS(op_name, test_name, T, OutT, \
+                                               baseline_callback)           \
+  GENERATE_DEFAULT_NO_BROADCASTING_TESTS_2(                                 \
+      op_name, test_name, T, T, OutT, OutT, test::DefaultInput<T>(),        \
+      test::DefaultInput<T>(), baseline_callback,                           \
+      test::OpsTestConfig().ExpectStrictlyEqual())
 
 }  // namespace tensorflow
 

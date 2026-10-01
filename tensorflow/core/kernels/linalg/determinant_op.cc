@@ -19,11 +19,11 @@ limitations under the License.
 
 #if GOOGLE_CUDA
 #define EIGEN_USE_GPU
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
 #include "tensorflow/core/kernels/linalg/determinant_op.h"
 #endif
 
-#include "third_party/eigen3/Eigen/LU"
+#include "Eigen/LU"  // from @eigen_archive
 #include "tensorflow/core/framework/kernel_def_builder.h"
 #include "tensorflow/core/framework/numeric_types.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -35,7 +35,7 @@ limitations under the License.
 
 #if GOOGLE_CUDA
 #include "tensorflow/core/kernels/fill_functor.h"
-#include "tensorflow/core/util/cuda_solvers.h"
+#include "tensorflow/core/util/gpu_solvers.h"
 #endif
 
 namespace tensorflow {
@@ -64,12 +64,7 @@ static typename Eigen::NumTraits<Scalar>::Real SLogDet(
     auto diag = LU.diagonal().array().eval();
     auto abs_diag = diag.cwiseAbs().eval();
     log_abs_det += abs_diag.log().sum();
-    *sign *= (diag / abs_diag).prod();
-  }
-  if (!Eigen::numext::isfinite(log_abs_det)) {
-    *sign = 0;
-    log_abs_det =
-        log_abs_det > 0 ? -std::log(RealScalar(0)) : std::log(RealScalar(0));
+    *sign *= diag.array().sign().prod();
   }
   return log_abs_det;
 }
@@ -133,17 +128,17 @@ class DeterminantOpGpu : public AsyncOpKernel {
   void ComputeAsync(OpKernelContext* context, DoneCallback done) final {
     const Tensor& input = context->input(0);
     const int ndims = input.dims();
-    const int64 n = input.dim_size(ndims - 1);
     // Validate inputs.
-    OP_REQUIRES_ASYNC(
-        context, ndims >= 2,
-        errors::InvalidArgument("Input must have rank >= 2, got ", ndims),
-        done);
-    OP_REQUIRES_ASYNC(
-        context, input.dim_size(ndims - 2) == n,
-        errors::InvalidArgument("Input matrices must be square, got",
-                                input.dim_size(ndims - 2), " != ", n),
-        done);
+    OP_REQUIRES_ASYNC(context, ndims >= 2,
+                      absl::InvalidArgumentError(absl::StrCat(
+                          "Input must have rank >= 2, got ", ndims)),
+                      done);
+    const int64_t n = input.dim_size(ndims - 1);
+    OP_REQUIRES_ASYNC(context, input.dim_size(ndims - 2) == n,
+                      absl::InvalidArgumentError(
+                          absl::StrCat("Input matrices must be square, got ",
+                                       input.dim_size(ndims - 2), " != ", n)),
+                      done);
 
     // Allocate output.
     TensorShape out_shape;
@@ -164,8 +159,7 @@ class DeterminantOpGpu : public AsyncOpKernel {
       return;
     }
 
-    // TODO(rmlarsen): Convert to absl::make_unique when available.
-    std::unique_ptr<CudaSolver> solver(new CudaSolver(context));
+    auto solver = std::make_unique<GpuSolver>(context);
 
     // Reuse the input buffer or make a copy for the factorization step,
     // depending on whether this ops owns it exclusively.
@@ -180,7 +174,7 @@ class DeterminantOpGpu : public AsyncOpKernel {
                input.NumElements() * sizeof(Scalar));
     }
     auto input_copy_reshaped = input_copy.template flat_inner_dims<Scalar, 3>();
-    const int64 batch_size = input_copy_reshaped.dimension(0);
+    const int64_t batch_size = input_copy_reshaped.dimension(0);
 
     // Allocate pivots on the device.
     Tensor pivots;
@@ -194,7 +188,7 @@ class DeterminantOpGpu : public AsyncOpKernel {
     // Prepare pointer arrays for cuBlas' batch interface.
     // TODO(rmlarsen): Find a way to encode pointer arrays in pinned host memory
     // without the ugly casting.
-    auto input_copy_ptrs = solver->GetScratchSpace<uint8>(
+    auto input_copy_ptrs = solver->GetScratchSpace<uint8_t>(
         sizeof(Scalar*) * batch_size, "input_copy_ptrs",
         /* on_host */ true);
     auto output_reshaped = out->template flat_inner_dims<Scalar, 1>();
@@ -241,9 +235,9 @@ class DeterminantOpGpu : public AsyncOpKernel {
 
     // Register callback to check info after kernels finish.
     auto info_checker = [context, done](
-                            const Status& status,
+                            const absl::Status& status,
                             const std::vector<HostLapackInfo>& host_infos) {
-      if (!status.ok() && errors::IsInvalidArgument(status) &&
+      if (!status.ok() && absl::IsInvalidArgument(status) &&
           !host_infos.empty()) {
         for (int i = 0; i < host_infos[0].size(); ++i) {
           // It is OK for a matrix to be singular (signaled by info > 0),
@@ -251,16 +245,16 @@ class DeterminantOpGpu : public AsyncOpKernel {
           // invalid arguments to Getrf{Batched}.
           OP_REQUIRES_ASYNC(
               context, host_infos[0](i) >= 0,
-              errors::InvalidArgument("Invalid input argument no. ",
-                                      host_infos[0].data()[i],
-                                      " for batch index ", i, "."),
+              absl::InvalidArgumentError(absl::StrCat(
+                  "Invalid input argument no. ", host_infos[0].data()[i],
+                  " for batch index ", i, ".")),
               done);
         }
       }
       done();
     };
-    CudaSolver::CheckLapackInfoAndDeleteSolverAsync(std::move(solver), dev_info,
-                                                    std::move(info_checker));
+    GpuSolver::CheckLapackInfoAndDeleteSolverAsync(std::move(solver), dev_info,
+                                                   std::move(info_checker));
   }
 };
 
@@ -273,17 +267,17 @@ class LogDeterminantOpGpu : public AsyncOpKernel {
   void ComputeAsync(OpKernelContext* context, DoneCallback done) final {
     const Tensor& input = context->input(0);
     const int ndims = input.dims();
-    const int64 n = input.dim_size(ndims - 1);
     // Validate inputs.
-    OP_REQUIRES_ASYNC(
-        context, ndims >= 2,
-        errors::InvalidArgument("Input must have rank >= 2, got ", ndims),
-        done);
-    OP_REQUIRES_ASYNC(
-        context, input.dim_size(ndims - 2) == n,
-        errors::InvalidArgument("Input matrices must be square, got",
-                                input.dim_size(ndims - 2), " != ", n),
-        done);
+    OP_REQUIRES_ASYNC(context, ndims >= 2,
+                      absl::InvalidArgumentError(absl::StrCat(
+                          "Input must have rank >= 2, got ", ndims)),
+                      done);
+    const int64_t n = input.dim_size(ndims - 1);
+    OP_REQUIRES_ASYNC(context, input.dim_size(ndims - 2) == n,
+                      absl::InvalidArgumentError(
+                          absl::StrCat("Input matrices must be square, got ",
+                                       input.dim_size(ndims - 2), " != ", n)),
+                      done);
 
     // Allocate output.
     TensorShape out_shape;
@@ -309,8 +303,7 @@ class LogDeterminantOpGpu : public AsyncOpKernel {
       return;
     }
 
-    // TODO(rmlarsen): Convert to absl::make_unique when available.
-    std::unique_ptr<CudaSolver> solver(new CudaSolver(context));
+    auto solver = std::make_unique<GpuSolver>(context);
 
     // Reuse the input buffer or make a copy for the factorization step,
     // depending on whether this ops owns it exclusively.
@@ -325,7 +318,7 @@ class LogDeterminantOpGpu : public AsyncOpKernel {
                input.NumElements() * sizeof(Scalar));
     }
     auto input_copy_reshaped = input_copy.template flat_inner_dims<Scalar, 3>();
-    const int64 batch_size = input_copy_reshaped.dimension(0);
+    const int64_t batch_size = input_copy_reshaped.dimension(0);
 
     // Allocate pivots on the device.
     Tensor pivots;
@@ -339,7 +332,7 @@ class LogDeterminantOpGpu : public AsyncOpKernel {
     // Prepare pointer arrays for cuBlas' batch interface.
     // TODO(rmlarsen): Find a way to encode pointer arrays in pinned host memory
     // without the ugly casting.
-    auto input_copy_ptrs = solver->GetScratchSpace<uint8>(
+    auto input_copy_ptrs = solver->GetScratchSpace<uint8_t>(
         sizeof(Scalar*) * batch_size, "input_copy_ptrs",
         /* on_host */ true);
 
@@ -384,13 +377,13 @@ class LogDeterminantOpGpu : public AsyncOpKernel {
     // input_copy by the Getrf{Batched} kernel.
     functor::LogDeterminantFromPivotedLUFunctor<GPUDevice, Scalar> functor;
     functor(d, input_copy_reshaped_const, pivots_mat.data(), sign_reshaped,
-            log_abs_det_reshaped);
+            log_abs_det_reshaped, dev_info.back().mutable_data());
 
     // Register callback to check info after kernels finish.
     auto info_checker = [context, done](
-                            const Status& status,
+                            const absl::Status& status,
                             const std::vector<HostLapackInfo>& host_infos) {
-      if (!status.ok() && errors::IsInvalidArgument(status) &&
+      if (!status.ok() && absl::IsInvalidArgument(status) &&
           !host_infos.empty()) {
         for (int i = 0; i < host_infos[0].size(); ++i) {
           // It is OK for a matrix to be singular (signaled by info > 0),
@@ -398,16 +391,17 @@ class LogDeterminantOpGpu : public AsyncOpKernel {
           // invalid arguments to Getrf{Batched}.
           OP_REQUIRES_ASYNC(
               context, host_infos[0](i) >= 0,
-              errors::InvalidArgument("Invalid input argument no. ",
-                                      host_infos[0].data()[i],
-                                      " for batch index ", i, "."),
+              absl::InvalidArgumentError(absl::StrCat(
+                  "Invalid input argument no. ", host_infos[0].data()[i],
+                  " for batch index ", i, ".")),
               done);
         }
       }
       done();
     };
-    CudaSolver::CheckLapackInfoAndDeleteSolverAsync(std::move(solver), dev_info,
-                                                    std::move(info_checker));
+
+    GpuSolver::CheckLapackInfoAndDeleteSolverAsync(std::move(solver), dev_info,
+                                                   std::move(info_checker));
   }
 };
 

@@ -15,7 +15,11 @@ limitations under the License.
 
 #include "tensorflow/python/util/function_parameter_canonicalizer.h"
 
+#include "absl/base/attributes.h"
 #include "absl/container/flat_hash_set.h"
+#include "absl/strings/str_cat.h"
+#include "absl/types/span.h"
+#include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/python/lib/core/py_util.h"
 #include "tensorflow/python/lib/core/safe_pyobject_ptr.h"
@@ -66,12 +70,12 @@ FunctionParameterCanonicalizer::FunctionParameterCanonicalizer(
 }
 
 bool FunctionParameterCanonicalizer::Canonicalize(
-    PyObject* args, PyObject* kwargs, absl::Span<PyObject*> result) {
+    PyObject* args, PyObject* kwargs, absl::Span<Safe_PyObjectPtr> result) {
   // TODO(kkb): Closely follow `Python/ceval.c`'s logic and error handling.
 
   DCheckPyGilState();
   DCHECK(PyTuple_CheckExact(args));
-  DCHECK(PyDict_CheckExact(kwargs));
+  DCHECK(kwargs == nullptr || PyDict_CheckExact(kwargs));
   DCHECK_EQ(result.size(), interned_arg_names_.size());
 
   const int args_size = Py_SIZE(args);
@@ -79,45 +83,75 @@ bool FunctionParameterCanonicalizer::Canonicalize(
 
   // Check if the number of input arguments are too many.
   if (TF_PREDICT_FALSE(args_size > interned_arg_names_.size())) {
-    // TODO(kkb): Also report the actual numbers.
-    PyErr_SetString(PyExc_TypeError, "Too many arguments were given");
+    PyErr_SetString(
+        PyExc_TypeError,
+        absl::StrCat("Too many arguments were given. Expected ",
+                     interned_arg_names_.size(), " but got ", args_size, ".")
+            .c_str());
     return false;
   }
 
-  // Fill positional arguments.
-  for (int i = 0; i < args_size; ++i) result[i] = PyTuple_GET_ITEM(args, i);
+  // Fill positional arguments with strong references.
+  for (int i = 0; i < args_size; ++i) {
+    PyObject* value = PyTuple_GET_ITEM(args, i);
+    Py_INCREF(value);
+    result[i] = Safe_PyObjectPtr(value);
+  }
 
-  // Fill default arguments.
+  // Fill default arguments with strong references.
   for (int i = std::max(positional_args_size_, args_size);
-       i < interned_arg_names_.size(); ++i)
-    result[i] = defaults_[i - positional_args_size_].get();
+       i < interned_arg_names_.size(); ++i) {
+    PyObject* value = defaults_[i - positional_args_size_].get();
+    Py_INCREF(value);
+    result[i] = Safe_PyObjectPtr(value);
+  }
 
   // Fill keyword arguments.
   if (kwargs != nullptr) {
+#ifdef Py_GIL_DISABLED
+    // PyDict_Next() requires external synchronization in free-threaded
+    // CPython. Snapshot strong references while holding the dictionary
+    // critical section, then process them after releasing it.
+    using OwnedKwarg = std::pair<Safe_PyObjectPtr, Safe_PyObjectPtr>;
+    std::vector<OwnedKwarg> kwargs_snapshot;
+    kwargs_snapshot.reserve(PyDict_Size(kwargs));
+
+    Py_BEGIN_CRITICAL_SECTION(kwargs);
+
     PyObject *key, *value;
     Py_ssize_t pos = 0;
     while (PyDict_Next(kwargs, &pos, &key, &value)) {
+      Py_INCREF(key);
+      Py_INCREF(value);
+      kwargs_snapshot.emplace_back(Safe_PyObjectPtr(key),
+                                   Safe_PyObjectPtr(value));
+    }
+
+    Py_END_CRITICAL_SECTION();
+
+    for (auto& item : kwargs_snapshot) {
+      PyObject* key = item.first.get();
+
       std::size_t index = InternedArgNameLinearSearch(key);
 
-      // Check if key object(argument name) was found in the pre-built intern
-      // string table.
       if (TF_PREDICT_FALSE(index == interned_arg_names_.size())) {
-        // `key` might not be an interend string, so get the interned string
-        // and try again.
-        PyUnicodeInternInPlaceCompat(&key);
+        PyObject* interned_key = key;
+        Py_INCREF(interned_key);
+        PyUnicodeInternInPlaceCompat(&interned_key);
 
-        index = InternedArgNameLinearSearch(key);
+        index = InternedArgNameLinearSearch(interned_key);
 
-        // Stil not found, then return an error.
         if (TF_PREDICT_FALSE(index == interned_arg_names_.size())) {
           PyErr_Format(PyExc_TypeError,
                        "Got an unexpected keyword argument '%s'",
-                       PyUnicodeAsUtf8Compat(key));
+                       PyUnicodeAsUtf8Compat(interned_key));
+          Py_DECREF(interned_key);
           return false;
         }
+
+        Py_DECREF(interned_key);
       }
 
-      // Check if the keyword argument overlaps with positional arguments.
       if (TF_PREDICT_FALSE(index < args_size)) {
         PyErr_Format(PyExc_TypeError, "Got multiple values for argument '%s'",
                      PyUnicodeAsUtf8Compat(key));
@@ -127,8 +161,45 @@ bool FunctionParameterCanonicalizer::Canonicalize(
       if (TF_PREDICT_FALSE(index < positional_args_size_))
         --remaining_positional_args_count;
 
-      result[index] = value;
+      result[index] = std::move(item.second);
     }
+#else
+    // With the GIL enabled, preserve the original direct dictionary iteration
+    // fast path while returning strong references in `result`.
+    PyObject *key, *value;
+    Py_ssize_t pos = 0;
+    while (PyDict_Next(kwargs, &pos, &key, &value)) {
+      std::size_t index = InternedArgNameLinearSearch(key);
+
+      if (TF_PREDICT_FALSE(index == interned_arg_names_.size())) {
+        Py_INCREF(key);
+        PyUnicodeInternInPlaceCompat(&key);
+        index = InternedArgNameLinearSearch(key);
+
+        if (TF_PREDICT_FALSE(index == interned_arg_names_.size())) {
+          PyErr_Format(PyExc_TypeError,
+                       "Got an unexpected keyword argument '%s'",
+                       PyUnicodeAsUtf8Compat(key));
+          Py_DECREF(key);
+          return false;
+        }
+
+        Py_DECREF(key);
+      }
+
+      if (TF_PREDICT_FALSE(index < args_size)) {
+        PyErr_Format(PyExc_TypeError, "Got multiple values for argument '%s'",
+                     PyUnicodeAsUtf8Compat(key));
+        return false;
+      }
+
+      if (TF_PREDICT_FALSE(index < positional_args_size_))
+        --remaining_positional_args_count;
+
+      Py_INCREF(value);
+      result[index] = Safe_PyObjectPtr(value);
+    }
+#endif  // Py_GIL_DISABLED
   }
 
   // Check if all the arguments are filled.
@@ -142,10 +213,9 @@ bool FunctionParameterCanonicalizer::Canonicalize(
   return true;
 }
 
-ABSL_MUST_USE_RESULT
-ABSL_ATTRIBUTE_HOT
-inline std::size_t FunctionParameterCanonicalizer::InternedArgNameLinearSearch(
-    PyObject* name) {
+[[nodiscard]]
+ABSL_ATTRIBUTE_HOT inline std::size_t
+FunctionParameterCanonicalizer::InternedArgNameLinearSearch(PyObject* name) {
   std::size_t result = interned_arg_names_.size();
 
   for (std::size_t i = 0; i < interned_arg_names_.size(); ++i)

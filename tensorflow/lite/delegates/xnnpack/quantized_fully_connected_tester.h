@@ -20,13 +20,17 @@ limitations under the License.
 #include <vector>
 
 #include <gtest/gtest.h>
-#include "tensorflow/lite/c/common.h"
+#include "tensorflow/lite/core/c/common.h"
+#include "tensorflow/lite/delegates/xnnpack/test_util.h"
+#include "tensorflow/lite/delegates/xnnpack/xnnpack_delegate.h"
+#include "tensorflow/lite/interpreter.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
 namespace tflite {
 namespace xnnpack {
 
-class QuantizedFullyConnectedTester {
+class QuantizedFullyConnectedTester
+    : public ModelCache<QuantizedFullyConnectedTester> {
  public:
   QuantizedFullyConnectedTester() = default;
   QuantizedFullyConnectedTester(const QuantizedFullyConnectedTester&) = delete;
@@ -67,20 +71,28 @@ class QuantizedFullyConnectedTester {
   std::vector<int32_t> OutputShape() const;
 
   inline QuantizedFullyConnectedTester& InputZeroPoint(
-      int8_t input_zero_point) {
+      int32_t input_zero_point) {
     input_zero_point_ = input_zero_point;
     return *this;
   }
 
-  inline int8_t InputZeroPoint() const { return input_zero_point_; }
+  inline int32_t InputZeroPoint() const { return input_zero_point_; }
+
+  inline QuantizedFullyConnectedTester& FilterZeroPoint(
+      int32_t filter_zero_point) {
+    filter_zero_point_ = filter_zero_point;
+    return *this;
+  }
+
+  inline int32_t FilterZeroPoint() const { return filter_zero_point_; }
 
   inline QuantizedFullyConnectedTester& OutputZeroPoint(
-      int8_t output_zero_point) {
+      int32_t output_zero_point) {
     output_zero_point_ = output_zero_point;
     return *this;
   }
 
-  inline int8_t OutputZeroPoint() const { return output_zero_point_; }
+  inline int32_t OutputZeroPoint() const { return output_zero_point_; }
 
   inline QuantizedFullyConnectedTester& InputScale(float input_scale) {
     input_scale_ = input_scale;
@@ -110,6 +122,8 @@ class QuantizedFullyConnectedTester {
 
   inline bool KeepDims() const { return keep_dims_; }
 
+  inline bool Unsigned() const { return filter_zero_point_ != 0; }
+
   inline QuantizedFullyConnectedTester& NoBias() {
     has_bias_ = false;
     return *this;
@@ -135,10 +149,20 @@ class QuantizedFullyConnectedTester {
     return *this;
   }
 
-  void Test(TfLiteDelegate* delegate) const;
+  inline QuantizedFullyConnectedTester& WeightsCache(
+      TfLiteXNNPackDelegateWeightsCache* weights_cache) {
+    weights_cache_ = weights_cache;
+    return *this;
+  }
+
+  template <class T>
+  void Test(Interpreter* delegate_interpreter,
+            Interpreter* default_interpreter) const;
+
+  void Test(TfLiteDelegate* delegate);
 
  private:
-  std::vector<char> CreateTfLiteModel() const;
+  std::vector<char> CreateTfLiteModel() const override;
 
   inline bool HasBias() const { return has_bias_; }
 
@@ -152,8 +176,9 @@ class QuantizedFullyConnectedTester {
   int32_t input_size_ = 1;
   int32_t input_channels_ = 1;
   int32_t output_channels_ = 1;
-  int8_t input_zero_point_ = 0;
-  int8_t output_zero_point_ = 0;
+  int32_t input_zero_point_ = 0;
+  int32_t filter_zero_point_ = 0;
+  int32_t output_zero_point_ = 0;
   float input_scale_ = 0.8f;
   float filter_scale_ = 0.75f;
   float output_scale_ = 1.5f;
@@ -161,6 +186,7 @@ class QuantizedFullyConnectedTester {
   bool has_bias_ = true;
   ::tflite::ActivationFunctionType activation_ =
       ::tflite::ActivationFunctionType_NONE;
+  TfLiteXNNPackDelegateWeightsCache* weights_cache_ = nullptr;
 };
 
 }  // namespace xnnpack

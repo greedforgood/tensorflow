@@ -67,8 +67,9 @@ Tensor GetTestTensor(int batch) {
   return t;
 }
 
-Graph* SetupRegexReplaceGraph(const Tensor& input, const string& input_pattern,
-                              const string& input_rewrite) {
+Graph* SetupRegexReplaceGraph(const Tensor& input,
+                              const std::string& input_pattern,
+                              const std::string& input_rewrite) {
   Graph* g = new Graph(OpRegistry::Global());
   Tensor pattern(DT_STRING, TensorShape({}));
   pattern.flat<tstring>().setConstant(input_pattern);
@@ -90,7 +91,7 @@ static void BM_RegexReplace(::testing::benchmark::State& state) {
   Tensor input = GetTestTensor(batch_size);
   Graph* g = SetupRegexReplaceGraph(input, kRegExPattern, kRewrite);
   test::Benchmark("cpu", g, /*old_benchmark_api*/ false).Run(state);
-  state.SetItemsProcessed(static_cast<int64>(state.iterations()));
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()));
 }
 
 BENCHMARK(BM_RegexReplace)
@@ -103,8 +104,8 @@ BENCHMARK(BM_RegexReplace)
     ->Arg(128)
     ->Arg(256);
 
-Graph* SetupStaticGraph(const Tensor& input, const string& input_pattern,
-                        const string& rewrite) {
+Graph* SetupStaticGraph(const Tensor& input, const std::string& input_pattern,
+                        const std::string& rewrite) {
   Graph* g = new Graph(OpRegistry::Global());
 
   TF_CHECK_OK(NodeBuilder("static_regex_replace_op", "StaticRegexReplace")
@@ -121,7 +122,7 @@ static void BM_StaticRegexReplace(::testing::benchmark::State& state) {
   Tensor input = GetTestTensor(batch_size);
   Graph* g = SetupStaticGraph(input, kRegExPattern, kRewrite);
   test::Benchmark("cpu", g, /*old_benchmark_api*/ false).Run(state);
-  state.SetItemsProcessed(static_cast<int64>(state.iterations()));
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()));
 }
 
 BENCHMARK(BM_StaticRegexReplace)

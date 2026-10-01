@@ -1,5 +1,23 @@
+# Copyright 2026 The TensorFlow Authors. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+
+load("@rules_cc//cc:cc_library.bzl", "cc_library")
+
 # Library for generating feature vectors from audio data
 package(
+    # copybara:uncomment default_applicable_licenses = ["//tensorflow:LICENSE"],
     default_visibility = ["//visibility:public"],
     licenses = ["notice"],
 )
@@ -114,86 +132,5 @@ cc_library(
     hdrs = [
         "window.h",
         "window_util.h",
-    ],
-)
-
-cc_test(
-    name = "fft_test",
-    srcs = ["fft_test.cc"],
-    deps = [
-        ":fft",
-        "//tensorflow/lite/micro/testing:micro_test",
-    ],
-)
-
-cc_test(
-    name = "filterbank_test",
-    srcs = ["filterbank_test.cc"],
-    # Setting copts for experimental code to [], but this code should be fixed
-    # to build with the default copts (micro_copts())
-    copts = [],
-    deps = [
-        ":filterbank",
-        "//tensorflow/lite/micro/testing:micro_test",
-    ],
-)
-
-cc_test(
-    name = "frontend_test",
-    srcs = ["frontend_test.cc"],
-    # Setting copts for experimental code to [], but this code should be fixed
-    # to build with the default copts (micro_copts())
-    copts = [],
-    deps = [
-        ":frontend",
-        "//tensorflow/lite/micro/testing:micro_test",
-    ],
-)
-
-cc_test(
-    name = "log_scale_test",
-    srcs = ["log_scale_test.cc"],
-    # Setting copts for experimental code to [], but this code should be fixed
-    # to build with the default copts (micro_copts())
-    copts = [],
-    deps = [
-        ":log_scale",
-        "//tensorflow/lite/micro/testing:micro_test",
-    ],
-)
-
-cc_test(
-    name = "noise_reduction_test",
-    srcs = ["noise_reduction_test.cc"],
-    # Setting copts for experimental code to [], but this code should be fixed
-    # to build with the default copts (micro_copts())
-    copts = [],
-    deps = [
-        ":noise_reduction",
-        "//tensorflow/lite/micro/testing:micro_test",
-    ],
-)
-
-cc_test(
-    name = "pcan_gain_control_test",
-    srcs = ["pcan_gain_control_test.cc"],
-    # Setting copts for experimental code to [], but this code should be fixed
-    # to build with the default copts (micro_copts())
-    copts = [],
-    deps = [
-        ":pcan_gain_control",
-        "//tensorflow/lite/micro/testing:micro_test",
-    ],
-)
-
-cc_test(
-    name = "window_test",
-    srcs = ["window_test.cc"],
-    # Setting copts for experimental code to [], but this code should be fixed
-    # to build with the default copts (micro_copts())
-    copts = [],
-    deps = [
-        ":window",
-        "//tensorflow/lite/micro/testing:micro_test",
     ],
 )

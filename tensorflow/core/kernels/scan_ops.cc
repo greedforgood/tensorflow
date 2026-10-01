@@ -13,6 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #define EIGEN_USE_THREADS
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #define EIGEN_USE_GPU
@@ -20,7 +22,7 @@ limitations under the License.
 
 #include "tensorflow/core/kernels/scan_ops.h"
 
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
 #include "tensorflow/core/framework/bounds_check.h"
 #include "tensorflow/core/framework/numeric_op.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -46,8 +48,9 @@ class ScanOp : public OpKernel {
     const Tensor& tensor_axis = ctx->input(1);
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(tensor_axis.shape()),
-                errors::InvalidArgument("ScanOp: axis must be a scalar, not ",
-                                        tensor_axis.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("ScanOp: axis must be a scalar, not ",
+                                 tensor_axis.shape().DebugString())));
 
     const Tidx axis_arg =
         internal::SubtleMustCopy(tensor_axis.scalar<Tidx>()());
@@ -68,7 +71,7 @@ class ScanOp : public OpKernel {
     Reducer reducer;
 
     // Dim reduction.
-    int64 reduced_shape[3] = {1, 1, 1};
+    int64_t reduced_shape[3] = {1, 1, 1};
     for (Tidx i = 0; i < axis; ++i) {
       reduced_shape[0] *= input.dim_size(i);
     }
@@ -104,12 +107,12 @@ namespace functor {
   DECLARE(Eigen::internal::ProdReducer<T>, T);
 
 TF_CALL_GPU_NUMBER_TYPES(DECLARE_FOR_ALL_REDUCERS);
-DECLARE_FOR_ALL_REDUCERS(int32);
-DECLARE_FOR_ALL_REDUCERS(int64);
+DECLARE_FOR_ALL_REDUCERS(int32_t);
+DECLARE_FOR_ALL_REDUCERS(int64_t);
 #undef DECLARE_FOR_ALL_REDUCERS
 
 #define DECLARE_FOR_LOGSUMEXP_REDUCER(T) DECLARE(LogSumExpReducer<T>, T);
-TF_CALL_GPU_NUMBER_TYPES(DECLARE_FOR_LOGSUMEXP_REDUCER)
+TF_CALL_GPU_NUMBER_TYPES(DECLARE_FOR_LOGSUMEXP_REDUCER);
 #undef DECLARE_FOR_LOGSUMEXP_REDUCER
 
 #undef DECLARE
@@ -129,7 +132,7 @@ TF_CALL_GPU_NUMBER_TYPES(DECLARE_FOR_LOGSUMEXP_REDUCER)
       Name("Cumsum")                                                     \
           .Device(DEVICE_CPU)                                            \
           .TypeConstraint<type>("T")                                     \
-          .TypeConstraint<int64>("Tidx"),                                \
+          .TypeConstraint<int64_t>("Tidx"),                              \
       ScanOp<CPUDevice, type, Eigen::internal::SumReducer<type>, int64>)
 TF_CALL_NUMBER_TYPES(REGISTER_CPU_KERNELS);
 #undef REGISTER_CPU_KERNELS
@@ -147,12 +150,12 @@ TF_CALL_NUMBER_TYPES(REGISTER_CPU_KERNELS);
       Name("Cumsum")                                                     \
           .Device(DEVICE_GPU)                                            \
           .TypeConstraint<type>("T")                                     \
-          .TypeConstraint<int64>("Tidx")                                 \
+          .TypeConstraint<int64_t>("Tidx")                               \
           .HostMemory("axis"),                                           \
       ScanOp<GPUDevice, type, Eigen::internal::SumReducer<type>, int64>)
-TF_CALL_GPU_NUMBER_TYPES(REGISTER_GPU_KERNELS)
-REGISTER_GPU_KERNELS(int32);
-REGISTER_GPU_KERNELS(int64);
+TF_CALL_GPU_NUMBER_TYPES(REGISTER_GPU_KERNELS);
+REGISTER_GPU_KERNELS(int32_t);
+REGISTER_GPU_KERNELS(int64_t);
 #undef REGISTER_GPU_KERNELS
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 
@@ -168,7 +171,7 @@ REGISTER_GPU_KERNELS(int64);
       Name("Cumprod")                                                     \
           .Device(DEVICE_CPU)                                             \
           .TypeConstraint<type>("T")                                      \
-          .TypeConstraint<int64>("Tidx"),                                 \
+          .TypeConstraint<int64_t>("Tidx"),                               \
       ScanOp<CPUDevice, type, Eigen::internal::ProdReducer<type>, int64>)
 TF_CALL_NUMBER_TYPES(REGISTER_CPU_KERNELS);
 #undef REGISTER_CPU_KERNELS
@@ -186,12 +189,12 @@ TF_CALL_NUMBER_TYPES(REGISTER_CPU_KERNELS);
       Name("Cumprod")                                                     \
           .Device(DEVICE_GPU)                                             \
           .TypeConstraint<type>("T")                                      \
-          .TypeConstraint<int64>("Tidx")                                  \
+          .TypeConstraint<int64_t>("Tidx")                                \
           .HostMemory("axis"),                                            \
       ScanOp<GPUDevice, type, Eigen::internal::ProdReducer<type>, int64>)
-TF_CALL_GPU_NUMBER_TYPES(REGISTER_GPU_KERNELS)
-REGISTER_GPU_KERNELS(int32);
-REGISTER_GPU_KERNELS(int64);
+TF_CALL_GPU_NUMBER_TYPES(REGISTER_GPU_KERNELS);
+REGISTER_GPU_KERNELS(int32_t);
+REGISTER_GPU_KERNELS(int64_t);
 #undef REGISTER_GPU_KERNELS
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 
@@ -206,15 +209,15 @@ REGISTER_GPU_KERNELS(int64);
 
 #define REGISTER_CPU_KERNELS(type)                                 \
   REGISTER_CUMLOGSUMEXP_KERNEL(DEVICE_CPU, CPUDevice, type, int32) \
-  REGISTER_CUMLOGSUMEXP_KERNEL(DEVICE_CPU, CPUDevice, type, int64)
+  REGISTER_CUMLOGSUMEXP_KERNEL(DEVICE_CPU, CPUDevice, type, int64_t)
 
-TF_CALL_GPU_NUMBER_TYPES(REGISTER_CPU_KERNELS);
+TF_CALL_FLOAT_TYPES(REGISTER_CPU_KERNELS);
 #undef REGISTER_CPU_KERNELS
 
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #define REGISTER_GPU_KERNELS(type)                                 \
   REGISTER_CUMLOGSUMEXP_KERNEL(DEVICE_GPU, GPUDevice, type, int32) \
-  REGISTER_CUMLOGSUMEXP_KERNEL(DEVICE_GPU, GPUDevice, type, int64)
+  REGISTER_CUMLOGSUMEXP_KERNEL(DEVICE_GPU, GPUDevice, type, int64_t)
 
 TF_CALL_GPU_NUMBER_TYPES(REGISTER_GPU_KERNELS);
 #undef REGISTER_GPU_KERNELS

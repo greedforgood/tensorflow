@@ -17,11 +17,12 @@ limitations under the License.
 
 #define EIGEN_USE_THREADS
 
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
 #include "tensorflow/core/framework/register_types.h"
 #include "tensorflow/core/framework/tensor_types.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/framework/variant_encode_decode.h"
+#include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
 namespace functor {
@@ -45,14 +46,14 @@ DEFINE_SETZERO_CPU(Eigen::half);
 DEFINE_SETZERO_CPU(bfloat16);
 DEFINE_SETZERO_CPU(float);
 DEFINE_SETZERO_CPU(double);
-DEFINE_SETZERO_CPU(uint32);
-DEFINE_SETZERO_CPU(uint64);
-DEFINE_SETZERO_CPU(uint8);
-DEFINE_SETZERO_CPU(int8);
-DEFINE_SETZERO_CPU(uint16);
-DEFINE_SETZERO_CPU(int16);
-DEFINE_SETZERO_CPU(int32);
-DEFINE_SETZERO_CPU(int64);
+DEFINE_SETZERO_CPU(uint32_t);
+DEFINE_SETZERO_CPU(uint64_t);
+DEFINE_SETZERO_CPU(uint8_t);
+DEFINE_SETZERO_CPU(int8_t);
+DEFINE_SETZERO_CPU(uint16_t);
+DEFINE_SETZERO_CPU(int16_t);
+DEFINE_SETZERO_CPU(int32_t);
+DEFINE_SETZERO_CPU(int64_t);
 DEFINE_SETZERO_CPU(quint8);
 DEFINE_SETZERO_CPU(qint8);
 DEFINE_SETZERO_CPU(quint16);
@@ -61,8 +62,18 @@ DEFINE_SETZERO_CPU(qint32);
 DEFINE_SETZERO_CPU(complex64);
 DEFINE_SETZERO_CPU(complex128);
 DEFINE_SETZERO_CPU(Variant);
+DEFINE_SETZERO_CPU(float8_e5m2);
+DEFINE_SETZERO_CPU(float8_e4m3fn);
+DEFINE_SETZERO_CPU(float8_e4m3fnuz);
+DEFINE_SETZERO_CPU(float8_e4m3b11fnuz);
+DEFINE_SETZERO_CPU(float8_e5m2fnuz);
+DEFINE_SETZERO_CPU(float8_e8m0fnu);
+DEFINE_SETZERO_CPU(float4_e2m1fn);
+DEFINE_SETZERO_CPU(int4);
+DEFINE_SETZERO_CPU(uint4);
+DEFINE_SETZERO_CPU(int2);
+DEFINE_SETZERO_CPU(uint2);
 #undef DEFINE_SETZERO_CPU
-
 
 template <typename T>
 void SetOneFunctor<Eigen::ThreadPoolDevice, T>::operator()(
@@ -78,18 +89,41 @@ DEFINE_SETONE_CPU(Eigen::half);
 DEFINE_SETONE_CPU(bfloat16);
 DEFINE_SETONE_CPU(float);
 DEFINE_SETONE_CPU(double);
-DEFINE_SETONE_CPU(uint32);
-DEFINE_SETONE_CPU(uint64);
-DEFINE_SETONE_CPU(uint8);
-DEFINE_SETONE_CPU(int8);
-DEFINE_SETONE_CPU(uint16);
-DEFINE_SETONE_CPU(int16);
-DEFINE_SETONE_CPU(int32);
-DEFINE_SETONE_CPU(int64);
+DEFINE_SETONE_CPU(uint32_t);
+DEFINE_SETONE_CPU(uint64_t);
+DEFINE_SETONE_CPU(uint8_t);
+DEFINE_SETONE_CPU(int8_t);
+DEFINE_SETONE_CPU(uint16_t);
+DEFINE_SETONE_CPU(int16_t);
+DEFINE_SETONE_CPU(int32_t);
+DEFINE_SETONE_CPU(int64_t);
 DEFINE_SETONE_CPU(complex64);
 DEFINE_SETONE_CPU(complex128);
+DEFINE_SETONE_CPU(float8_e5m2);
+DEFINE_SETONE_CPU(float8_e4m3fn);
+DEFINE_SETONE_CPU(float8_e4m3fnuz);
+DEFINE_SETONE_CPU(float8_e4m3b11fnuz);
+DEFINE_SETONE_CPU(float8_e5m2fnuz);
+DEFINE_SETONE_CPU(float8_e8m0fnu);
+DEFINE_SETONE_CPU(float4_e2m1fn);
+DEFINE_SETONE_CPU(int4);
+DEFINE_SETONE_CPU(uint4);
+DEFINE_SETONE_CPU(int2);
+DEFINE_SETONE_CPU(uint2);
 #undef DEFINE_SETONE_CPU
 
+template <typename T>
+void SetNanFunctor<Eigen::ThreadPoolDevice, T>::operator()(
+    const Eigen::ThreadPoolDevice& d, typename TTypes<T>::Flat out) {
+  out.device(d) = out.constant(Eigen::NumTraits<T>::quiet_NaN());
+}
+
+// Explicit instantiations.
+#define DEFINE_SETNAN_CPU(T) \
+  template struct SetNanFunctor<Eigen::ThreadPoolDevice, T>;
+TF_CALL_NUMBER_TYPES(DEFINE_SETNAN_CPU);
+TF_CALL_bool(DEFINE_SETNAN_CPU);
+#undef DEFINE_SETNAN_CPU
 
 template <typename T>
 struct FillFunctor<Eigen::ThreadPoolDevice, T> {
@@ -110,8 +144,16 @@ DEFINE_FILL_CPU(quint16);
 DEFINE_FILL_CPU(qint8);
 DEFINE_FILL_CPU(qint16);
 DEFINE_FILL_CPU(qint32);
+DEFINE_FILL_CPU(float8_e5m2);
+DEFINE_FILL_CPU(float8_e4m3fn);
+DEFINE_FILL_CPU(float8_e4m3fnuz);
+DEFINE_FILL_CPU(float8_e4m3b11fnuz);
+DEFINE_FILL_CPU(float8_e5m2fnuz);
+DEFINE_FILL_CPU(float8_e8m0fnu);
+DEFINE_FILL_CPU(float4_e2m1fn);
+TF_CALL_int4(DEFINE_FILL_CPU);
+TF_CALL_uint4(DEFINE_FILL_CPU);
 #undef DEFINE_FILL_CPU
-
 
 }  // namespace functor
 }  // namespace tensorflow

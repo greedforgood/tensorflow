@@ -24,7 +24,7 @@ limitations under the License.
 #define EIGEN_USE_GPU
 #endif
 
-#include "third_party/eigen3/unsupported/Eigen/CXX11/Tensor"
+#include "unsupported/Eigen/CXX11/Tensor"  // from @eigen_archive
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor_types.h"
@@ -136,29 +136,29 @@ class CSRSoftmaxGradOp : public OpKernel {
 
     OP_REQUIRES(
         ctx, softmax_matrix->dims() == grad_softmax_matrix->dims(),
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(absl::StrCat(
             "Ranks of softmax and grad_softmax matrices differ: ",
-            softmax_matrix->dims(), " vs. ", grad_softmax_matrix->dims()));
+            softmax_matrix->dims(), " vs. ", grad_softmax_matrix->dims())));
 
     OP_REQUIRES(
         ctx, softmax_matrix->dims() == grad_softmax_matrix->dims(),
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(absl::StrCat(
             "Ranks of softmax and grad_softmax matrices differ: ",
-            softmax_matrix->dims(), " vs. ", grad_softmax_matrix->dims()));
+            softmax_matrix->dims(), " vs. ", grad_softmax_matrix->dims())));
 
     Tensor dense_shape_t = softmax_matrix->dense_shape();
     auto host_dense_shape =
-        static_cast<const Tensor>(dense_shape_t).vec<int64>();
+        static_cast<const Tensor>(dense_shape_t).vec<int64_t>();
 
     auto host_grad_dense_shape =
-        grad_softmax_matrix->dense_shape().vec<int64>();
+        grad_softmax_matrix->dense_shape().vec<int64_t>();
 
     for (int i = 0; i < host_dense_shape.size(); ++i) {
       OP_REQUIRES(ctx, host_dense_shape(i) == host_grad_dense_shape(i),
-                  errors::InvalidArgument(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "Shapes of softmax and grad_softmax matrices differ: ",
                       dense_shape_t.SummarizeValue(3), " vs. ",
-                      grad_softmax_matrix->dense_shape().SummarizeValue(3)));
+                      grad_softmax_matrix->dense_shape().SummarizeValue(3))));
     }
 
     // Allocate output shapes.  Note that since the Softmax Gradient

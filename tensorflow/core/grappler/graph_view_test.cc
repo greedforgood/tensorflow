@@ -69,7 +69,7 @@ TEST_F(GraphViewTest, OpPortIdToArgIdShapeN) {
 TEST_F(GraphViewTest, OpPortIdToArgIdSparseSplit) {
   for (int num_splits : {1, 2}) {
     tensorflow::Scope s = tensorflow::Scope::NewRootScope();
-    Output a = ops::Const<int64>(s.WithOpName("a"), 1, {10, 10});
+    Output a = ops::Const<int64_t>(s.WithOpName("a"), 1, {10, 10});
     ops::SparseSplit b(s.WithOpName("b"), a, a, a, a, num_splits);
 
     GraphDef graph_def;
@@ -100,7 +100,7 @@ TEST_F(GraphViewTest, OpPortIdToArgIdSparseSplit) {
 TEST_F(GraphViewTest, ParseSingleExample) {
   tensorflow::Scope s = tensorflow::Scope::NewRootScope();
   Output a = ops::Const<tstring>(s.WithOpName("a"), "", {});
-  Output b = ops::Const<int64>(s.WithOpName("b"), 1, {1, 1});
+  Output b = ops::Const<int64_t>(s.WithOpName("b"), 1, {1, 1});
   ops::ParseSingleExample c(s.WithOpName("c"), a, {b, b}, 2, {"w", "x"},
                             {"y", "z"}, {DT_INT64, DT_INT64}, {{1}, {1}});
 
@@ -161,16 +161,16 @@ TEST_F(GraphViewTest, BasicGraph) {
   const NodeDef* add_node = graph.GetNode("AddN");
   EXPECT_NE(add_node, nullptr);
 
-  absl::flat_hash_set<string> fanouts;
-  absl::flat_hash_set<string> expected_fanouts = {"AddN_2:0", "AddN_3:0"};
+  absl::flat_hash_set<std::string> fanouts;
+  absl::flat_hash_set<std::string> expected_fanouts = {"AddN_2:0", "AddN_3:0"};
   for (const auto& fo : graph.GetFanouts(*add_node, false)) {
     fanouts.insert(absl::StrCat(fo.node->name(), ":", fo.port_id));
   }
   EXPECT_EQ(graph.NumFanouts(*add_node, false), 2);
   EXPECT_EQ(fanouts, expected_fanouts);
 
-  absl::flat_hash_set<string> fanins;
-  absl::flat_hash_set<string> expected_fanins = {"Sign_1:0", "Sign:0"};
+  absl::flat_hash_set<std::string> fanins;
+  absl::flat_hash_set<std::string> expected_fanins = {"Sign_1:0", "Sign:0"};
   for (const auto& fi : graph.GetFanins(*add_node, false)) {
     fanins.insert(absl::StrCat(fi.node->name(), ":", fi.port_id));
   }

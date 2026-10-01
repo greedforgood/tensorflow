@@ -18,6 +18,8 @@ limitations under the License.
 
 #include <algorithm>  // NOLINT
 
+#include "absl/status/status.h"
+#include "absl/strings/str_cat.h"
 #include "tensorflow/core/framework/bounds_check.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/register_types.h"
@@ -103,7 +105,7 @@ struct ApplyAdagradDA<CPUDevice, T> {
   void operator()(const CPUDevice& d, typename TTypes<T>::Flat var,
                   typename TTypes<T>::Flat gradient_accum,
                   typename TTypes<T>::Flat gradient_squared_accum,
-                  typename TTypes<T>::ConstScalar lr, int64 global_step,
+                  typename TTypes<T>::ConstScalar lr, int64_t global_step,
                   typename TTypes<T>::ConstScalar l1,
                   typename TTypes<T>::ConstScalar l2,
                   typename TTypes<T>::ConstFlat grad) {
@@ -164,15 +166,15 @@ struct ApplyAdagradV2<CPUDevice, T> {
 
 template <typename T, typename Tindex, bool has_epsilon>
 struct SparseApplyAdagrad<CPUDevice, T, Tindex, has_epsilon> {
-  Status operator()(const CPUDevice& d, typename TTypes<T>::Matrix var,
-                    typename TTypes<T>::Matrix accum,
-                    typename TTypes<T>::ConstScalar lr,
-                    typename TTypes<T>::ConstScalar epsilon,
-                    typename TTypes<T>::ConstMatrix grad,
-                    typename TTypes<Tindex>::ConstVec indices, int64 inner_dim,
-                    bool update_slots) {
+  absl::Status operator()(const CPUDevice& d, typename TTypes<T>::Matrix var,
+                          typename TTypes<T>::Matrix accum,
+                          typename TTypes<T>::ConstScalar lr,
+                          typename TTypes<T>::ConstScalar epsilon,
+                          typename TTypes<T>::ConstMatrix grad,
+                          typename TTypes<Tindex>::ConstVec indices,
+                          int64_t inner_dim, bool update_slots) {
     const Tindex N = static_cast<Tindex>(indices.dimension(0));
-    if (N == 0) return Status::OK();
+    if (N == 0) return absl::OkStatus();
     const Tindex first_dim_size = static_cast<Tindex>(var.dimension(0));
     const T lr_scalar = lr();
     const int in_bytes = inner_dim * sizeof(T) * 3;
@@ -238,7 +240,7 @@ struct SparseApplyAdagrad<CPUDevice, T, Tindex, has_epsilon> {
       d.parallelFor(N, cost, shard);
     }
 
-    return Status::OK();
+    return absl::OkStatus();
   }
 };
 
@@ -272,16 +274,16 @@ struct ApplyProximalAdagrad<CPUDevice, T> {
 
 template <typename T, typename Tindex>
 struct SparseApplyProximalAdagrad<CPUDevice, T, Tindex> {
-  Status operator()(const CPUDevice& d, typename TTypes<T>::Matrix var,
-                    typename TTypes<T>::Matrix accum,
-                    typename TTypes<T>::ConstScalar lr,
-                    typename TTypes<T>::ConstScalar l1,
-                    typename TTypes<T>::ConstScalar l2,
-                    typename TTypes<T>::ConstMatrix grad,
-                    typename TTypes<Tindex>::ConstVec indices,
-                    int64 inner_dim) {
+  absl::Status operator()(const CPUDevice& d, typename TTypes<T>::Matrix var,
+                          typename TTypes<T>::Matrix accum,
+                          typename TTypes<T>::ConstScalar lr,
+                          typename TTypes<T>::ConstScalar l1,
+                          typename TTypes<T>::ConstScalar l2,
+                          typename TTypes<T>::ConstMatrix grad,
+                          typename TTypes<Tindex>::ConstVec indices,
+                          int64_t inner_dim) {
     const Tindex N = static_cast<Tindex>(indices.dimension(0));
-    if (N == 0) return Status::OK();
+    if (N == 0) return absl::OkStatus();
     const Tindex first_dim_size = static_cast<Tindex>(var.dimension(0));
     const T lr_scalar = lr();
     const T l1_scalar = l1();
@@ -338,7 +340,7 @@ struct SparseApplyProximalAdagrad<CPUDevice, T, Tindex> {
         }
       }
     }
-    return Status::OK();
+    return absl::OkStatus();
   }
 };
 
@@ -587,17 +589,18 @@ void ComputeFtrl(GradTy grad,
 
 template <typename T, typename Tindex, bool has_l2_shrinkage>
 struct SparseApplyFtrl<CPUDevice, T, Tindex, has_l2_shrinkage> {
-  Status operator()(const CPUDevice& d, typename TTypes<T>::Matrix var_flat,
-                    typename TTypes<T>::Matrix accum_flat,
-                    typename TTypes<T>::Matrix linear_flat,
-                    typename TTypes<T>::ConstScalar lr,
-                    typename TTypes<T>::ConstScalar l1,
-                    typename TTypes<T>::ConstScalar l2,
-                    typename TTypes<T>::ConstScalar l2_shrinkage,
-                    typename TTypes<T>::ConstScalar lr_power,
-                    typename TTypes<T>::ConstMatrix grad_flat,
-                    typename TTypes<Tindex>::ConstVec indices_vec,
-                    int64 inner_dim, bool multiply_linear_by_lr) {
+  absl::Status operator()(const CPUDevice& d,
+                          typename TTypes<T>::Matrix var_flat,
+                          typename TTypes<T>::Matrix accum_flat,
+                          typename TTypes<T>::Matrix linear_flat,
+                          typename TTypes<T>::ConstScalar lr,
+                          typename TTypes<T>::ConstScalar l1,
+                          typename TTypes<T>::ConstScalar l2,
+                          typename TTypes<T>::ConstScalar l2_shrinkage,
+                          typename TTypes<T>::ConstScalar lr_power,
+                          typename TTypes<T>::ConstMatrix grad_flat,
+                          typename TTypes<Tindex>::ConstVec indices_vec,
+                          int64_t inner_dim, bool multiply_linear_by_lr) {
     const Tindex N = static_cast<Tindex>(indices_vec.dimension(0));
     if (N > 0) {
       T lr_scalar = lr();
@@ -679,7 +682,7 @@ struct SparseApplyFtrl<CPUDevice, T, Tindex, has_l2_shrinkage> {
         }
       }
     }
-    return Status::OK();
+    return absl::OkStatus();
   }
 };
 
@@ -743,6 +746,34 @@ struct SparseApplyKerasMomentum<CPUDevice, T, Tindex> {
   }
 };
 
+template <typename T, typename Tindex>
+struct SparseApplyAdadelta<CPUDevice, T, Tindex> {
+  void operator()(const CPUDevice& d, typename TTypes<T>::Matrix var,
+                  typename TTypes<T>::Matrix accum,
+                  typename TTypes<T>::Matrix accum_update,
+                  typename TTypes<T>::ConstScalar lr,
+                  typename TTypes<T>::ConstScalar rho,
+                  typename TTypes<T>::ConstScalar epsilon,
+                  typename TTypes<T>::ConstMatrix grad,
+                  typename TTypes<Tindex>::ConstFlat indices) {
+    const Tindex N = static_cast<Tindex>(indices.size());
+    for (Tindex i = 0; i < N; i++) {
+      const Tindex index = indices(i);
+      auto a = accum.template chip<0>(index);
+      auto a_update = accum_update.template chip<0>(index);
+      auto g = grad.template chip<0>(i);
+
+      a = a * a.constant(rho()) + g.square() * g.constant(T(1) - rho());
+      const auto update = (a_update + a_update.constant(epsilon())).sqrt() *
+                          (a + a.constant(epsilon())).rsqrt() * g;
+      auto v = var.template chip<0>(index);
+      v -= update * update.constant(lr());
+      a_update = a_update * a_update.constant(rho()) +
+                 update.square() * update.constant(static_cast<T>(1) - rho());
+    }
+  }
+};
+
 template <typename Device, typename T>
 struct ApplyAdamNonCuda {
   void operator()(const Device& d, typename TTypes<T>::Flat var,
@@ -774,8 +805,8 @@ struct ApplyAdamNonCuda {
     // v     == n
     // var   == θ
 
-    auto shard = [this, var_ptr, m_ptr, v_ptr, g_ptr, alpha, beta1, beta2,
-                  epsilon, use_nesterov, packet_size](int begin, int end) {
+    auto shard = [var_ptr, m_ptr, v_ptr, g_ptr, alpha, beta1, beta2, epsilon,
+                  use_nesterov, packet_size](int begin, int end) {
       int t_size = (end - begin) * packet_size;
       begin = begin * packet_size;
       auto var = typename TTypes<T>::UnalignedTensor(var_ptr + begin, t_size);
@@ -950,14 +981,14 @@ class ApplyGradientDescentOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(0)));
     const Tensor& alpha = ctx->input(1);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(alpha.shape()),
-                errors::InvalidArgument("alpha is not a scalar: ",
-                                        alpha.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "alpha is not a scalar: ", alpha.shape().DebugString())));
     const Tensor& delta = ctx->input(2);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(delta.shape()),
-        errors::InvalidArgument("var and delta do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                delta.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and delta do not have the same shape",
+            var.shape().DebugString(), " ", delta.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyGradientDescent<Device, T>()(
@@ -1064,27 +1095,33 @@ class ApplyAdadeltaOp : public OpKernel {
     const Tensor& grad = ctx->input(6);
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(rho.shape()),
-                errors::InvalidArgument("rho is not a scalar: ",
-                                        rho.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "rho is not a scalar: ", rho.shape().DebugString())));
 
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
+    OP_REQUIRES(ctx, var.shape().IsSameSize(accum_update.shape()),
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and accum_update do not have the same shape",
+                    var.shape().DebugString(), " ",
+                    accum_update.shape().DebugString())));
   }
 
   void DoCompute(OpKernelContext* ctx) {
@@ -1157,8 +1194,7 @@ REGISTER_KERNELS(GPU, complex128);
 #undef REGISTER_CPU_KERNELS
 #undef REGISTER_KERNELS
 
-// Note, this op works on cpu only.
-template <typename T, typename Tindex>
+template <typename T, typename Device, typename Tindex>
 class SparseApplyAdadeltaOp : public OpKernel {
  public:
   explicit SparseApplyAdadeltaOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
@@ -1167,7 +1203,7 @@ class SparseApplyAdadeltaOp : public OpKernel {
 
   void Compute(OpKernelContext* ctx) override {
     const bool sparse = true;
-    auto locks = MaybeLockVariableInputMutexesInOrder<CPUDevice, T>(
+    auto locks = MaybeLockVariableInputMutexesInOrder<Device, T>(
         ctx, use_exclusive_lock_, sparse, {0, 1, 2});
     DoCompute(ctx);
   }
@@ -1175,15 +1211,15 @@ class SparseApplyAdadeltaOp : public OpKernel {
   void DoCompute(OpKernelContext* ctx) {
     Tensor var;
     const bool sparse = true;
-    OP_REQUIRES_OK(ctx, GetInputTensorFromVariable<CPUDevice, T>(
+    OP_REQUIRES_OK(ctx, GetInputTensorFromVariable<Device, T>(
                             ctx, 0, use_exclusive_lock_, sparse, &var));
     Tensor accum_grad;
-    OP_REQUIRES_OK(ctx, GetInputTensorFromVariable<CPUDevice, T>(
+    OP_REQUIRES_OK(ctx, GetInputTensorFromVariable<Device, T>(
                             ctx, 1, use_exclusive_lock_, sparse, &accum_grad));
     Tensor accum_update;
-    OP_REQUIRES_OK(ctx,
-                   GetInputTensorFromVariable<CPUDevice, T>(
-                       ctx, 2, use_exclusive_lock_, sparse, &accum_update));
+    OP_REQUIRES_OK(
+        ctx, GetInputTensorFromVariable<Device, T>(ctx, 2, use_exclusive_lock_,
+                                                   sparse, &accum_update));
     OP_REQUIRES(
         ctx, var.IsInitialized(),
         errors::FailedPrecondition(
@@ -1198,43 +1234,48 @@ class SparseApplyAdadeltaOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(2)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum_grad.shape()),
-        errors::InvalidArgument("var and accum_grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum_grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum_grad do not have the same shape",
+            var.shape().DebugString(), " ", accum_grad.shape().DebugString())));
     OP_REQUIRES(ctx, var.shape().IsSameSize(accum_update.shape()),
-                errors::InvalidArgument(
+                absl::InvalidArgumentError(absl::StrCat(
                     "var and accum_update do not have the same shape",
                     var.shape().DebugString(), " ",
-                    accum_update.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+                    accum_update.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& lr = ctx->input(3);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& rho = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(rho.shape()),
-                errors::InvalidArgument("rho is not a scalar: ",
-                                        rho.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "rho is not a scalar: ", rho.shape().DebugString())));
     const Tensor& epsilon = ctx->input(5);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
     const Tensor& grad = ctx->input(6);
     const Tensor& indices = ctx->input(7);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     if (N > 0) {
@@ -1243,37 +1284,19 @@ class SparseApplyAdadeltaOp : public OpKernel {
       auto indices_vec = indices.vec<Tindex>();
       for (Tindex i = 0; i < N; i++) {
         const Tindex index = indices_vec(i);
-        OP_REQUIRES(ctx, index >= 0 && index < first_dim_size,
+        OP_REQUIRES(ctx,
+                    (!std::is_same<Device, CPUDevice>::value ||
+                     (index >= 0 && index < first_dim_size)),
                     errors::InvalidArgument(
                         strings::StrCat("Index ", index, " at offset ", i,
                                         " in indices is out of range")));
       }
 
-      auto var_flat = var.flat_outer_dims<T>();
-      auto accum_grad_flat = accum_grad.flat_outer_dims<T>();
-      auto accum_update_flat = accum_update.flat_outer_dims<T>();
-      auto grad_flat = grad.flat_outer_dims<T>();
-      const T lr_scalar = lr.scalar<T>()();
-      const T rho_scalar = rho.scalar<T>()();
-      const T epsilon_scalar = epsilon.scalar<T>()();
-
-      for (Tindex i = 0; i < N; i++) {
-        const Tindex index = indices_vec(i);
-        auto accum_ = accum_grad_flat.template chip<0>(index);
-        auto accum_update_ = accum_update_flat.template chip<0>(index);
-        auto grad_ = grad_flat.template chip<0>(i);
-
-        accum_ = accum_ * accum_.constant(rho_scalar) +
-                 grad_.square() * grad_.constant(T(1) - rho_scalar);
-        const auto update =
-            (accum_update_ + accum_update_.constant(epsilon_scalar)).sqrt() *
-            (accum_ + accum_.constant(epsilon_scalar)).rsqrt() * grad_;
-        auto v = var_flat.template chip<0>(index);
-        v -= update * update.constant(lr_scalar);
-        accum_update_ =
-            accum_update_ * accum_update_.constant(rho_scalar) +
-            update.square() * update.constant(static_cast<T>(1) - rho_scalar);
-      }
+      const Device& device = ctx->template eigen_device<Device>();
+      functor::SparseApplyAdadelta<Device, T, Tindex>()(
+          device, var.flat_outer_dims<T>(), accum_grad.flat_outer_dims<T>(),
+          accum_update.flat_outer_dims<T>(), lr.scalar<T>(), rho.scalar<T>(),
+          epsilon.scalar<T>(), grad.flat_outer_dims<T>(), indices_vec);
     }
 
     MaybeForwardRefInputToRefOutput(ctx, 0, 0);
@@ -1283,25 +1306,64 @@ class SparseApplyAdadeltaOp : public OpKernel {
   bool use_exclusive_lock_;
 };
 
-#define REGISTER_KERNELS(T, Tindices)                                \
-  REGISTER_KERNEL_BUILDER(Name("SparseApplyAdadelta")                \
-                              .Device(DEVICE_CPU)                    \
-                              .TypeConstraint<T>("T")                \
-                              .TypeConstraint<Tindices>("Tindices"), \
-                          SparseApplyAdadeltaOp<T, Tindices>);       \
-  REGISTER_KERNEL_BUILDER(Name("ResourceSparseApplyAdadelta")        \
-                              .Device(DEVICE_CPU)                    \
-                              .TypeConstraint<T>("T")                \
-                              .TypeConstraint<Tindices>("Tindices"), \
-                          SparseApplyAdadeltaOp<T, Tindices>);
-#define REGISTER_CPU_KERNELS(T) \
-  REGISTER_KERNELS(T, int32);   \
-  REGISTER_KERNELS(T, int64);
+#define REGISTER_KERNELS(T, D, Tindices)                                  \
+  REGISTER_KERNEL_BUILDER(Name("SparseApplyAdadelta")                     \
+                              .Device(DEVICE_##D)                         \
+                              .TypeConstraint<T>("T")                     \
+                              .TypeConstraint<Tindices>("Tindices"),      \
+                          SparseApplyAdadeltaOp<T, D##Device, Tindices>); \
+  REGISTER_KERNEL_BUILDER(Name("ResourceSparseApplyAdadelta")             \
+                              .Device(DEVICE_##D)                         \
+                              .TypeConstraint<T>("T")                     \
+                              .TypeConstraint<Tindices>("Tindices"),      \
+                          SparseApplyAdadeltaOp<T, D##Device, Tindices>);
+#define REGISTER_CPU_KERNELS(T)    \
+  REGISTER_KERNELS(T, CPU, int32); \
+  REGISTER_KERNELS(T, CPU, int64_t);
 
 TF_CALL_FLOAT_TYPES(REGISTER_CPU_KERNELS);
 TF_CALL_COMPLEX_TYPES(REGISTER_CPU_KERNELS);
 
 #undef REGISTER_CPU_KERNELS
+
+#if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
+// Forward declarations of the functor specializations for GPU.
+namespace functor {
+#define DECLARE_GPU_SPEC(T, Tindex)                                            \
+  template <>                                                                  \
+  void SparseApplyAdadelta<GPUDevice, T, Tindex>::operator()(                  \
+      const GPUDevice& d, typename TTypes<T>::Matrix var,                      \
+      typename TTypes<T>::Matrix accum,                                        \
+      typename TTypes<T>::Matrix accum_update,                                 \
+      typename TTypes<T>::ConstScalar lr, typename TTypes<T>::ConstScalar rho, \
+      typename TTypes<T>::ConstScalar epsilon,                                 \
+      typename TTypes<T>::ConstMatrix grad,                                    \
+      typename TTypes<Tindex>::ConstFlat indices);                             \
+  extern template struct SparseApplyAdadelta<GPUDevice, T, Tindex>;
+DECLARE_GPU_SPEC(Eigen::half, int32_t);
+DECLARE_GPU_SPEC(Eigen::half, int64_t);
+DECLARE_GPU_SPEC(float, int32_t);
+DECLARE_GPU_SPEC(float, int64_t);
+DECLARE_GPU_SPEC(double, int32_t);
+DECLARE_GPU_SPEC(double, int64_t);
+DECLARE_GPU_SPEC(complex64, int32_t);
+DECLARE_GPU_SPEC(complex64, int64_t);
+DECLARE_GPU_SPEC(complex128, int32_t);
+DECLARE_GPU_SPEC(complex128, int64_t);
+#undef DECLARE_GPU_SPEC
+}  // namespace functor
+
+#define REGISTER_GPU_KERNELS(T)    \
+  REGISTER_KERNELS(T, GPU, int32); \
+  REGISTER_KERNELS(T, GPU, int64_t);
+
+REGISTER_GPU_KERNELS(Eigen::half);
+REGISTER_GPU_KERNELS(float);
+REGISTER_GPU_KERNELS(double);
+REGISTER_GPU_KERNELS(complex64);
+REGISTER_GPU_KERNELS(complex128);
+#undef REGISTER_GPU_KERNELS
+#endif
 #undef REGISTER_KERNELS
 
 // Note, this op works on cpu only.
@@ -1327,25 +1389,25 @@ class ApplyProximalGradientDescentOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(0)));
     const Tensor& alpha = ctx->input(1);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(alpha.shape()),
-                errors::InvalidArgument("alpha is not a scalar: ",
-                                        alpha.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "alpha is not a scalar: ", alpha.shape().DebugString())));
     const Tensor& l1 = ctx->input(2);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l1.shape()),
-        errors::InvalidArgument("l1 regularization strength is not a scalar: ",
-                                l1.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l1.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a scalar: ",
+                                 l1.shape().DebugString())));
     const Tensor& l2 = ctx->input(3);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l2.shape()),
-        errors::InvalidArgument("l2 regularization strength is not a scalar: ",
-                                l2.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l2.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a scalar: ",
+                                 l2.shape().DebugString())));
 
     const Tensor& delta = ctx->input(4);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(delta.shape()),
-        errors::InvalidArgument("var and delta do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                delta.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and delta do not have the same shape",
+            var.shape().DebugString(), " ", delta.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyProximalGradientDescent<Device, T>()(
@@ -1390,43 +1452,47 @@ class SparseApplyProximalGradientDescentOp : public OpKernel {
     Tensor var;
     OP_REQUIRES_OK(ctx, GetInputTensorFromVariable<CPUDevice, T>(
                             ctx, 0, use_exclusive_lock_, sparse, &var));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& lr = ctx->input(1);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& l1 = ctx->input(2);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l1.shape()),
-        errors::InvalidArgument("l1 regularization strength is not a scalar: ",
-                                l1.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l1.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a scalar: ",
+                                 l1.shape().DebugString())));
     const Tensor& l2 = ctx->input(3);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l2.shape()),
-        errors::InvalidArgument("l2 regularization strength is not a scalar: ",
-                                l2.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l2.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a scalar: ",
+                                 l2.shape().DebugString())));
 
     const Tensor& grad = ctx->input(4);
     const Tensor& indices = ctx->input(5);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
-    int64 inner_dim = 1;
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
+    int64_t inner_dim = 1;
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
       inner_dim *= grad.dim_size(d);
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
     OP_REQUIRES(ctx, inner_dim > 0,
-                errors::InvalidArgument(
+                absl::InvalidArgumentError(
                     "Inner dimension should be greater than zero."));
 
     if (N > 0) {
@@ -1515,10 +1581,10 @@ class SparseApplyProximalGradientDescentOp : public OpKernel {
                               .TypeConstraint<Tindices>("Tindices"),          \
                           SparseApplyProximalGradientDescentOp<T, Tindices>);
 
-REGISTER_KERNELS(float, int32);
-REGISTER_KERNELS(float, int64);
-REGISTER_KERNELS(double, int32);
-REGISTER_KERNELS(double, int64);
+REGISTER_KERNELS(float, int32_t);
+REGISTER_KERNELS(float, int64_t);
+REGISTER_KERNELS(double, int32_t);
+REGISTER_KERNELS(double, int64_t);
 #undef REGISTER_KERNELS
 
 template <typename Device, typename T>
@@ -1549,19 +1615,19 @@ class ApplyAdagradOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& grad = ctx->input(3);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyAdagrad<Device, T>()(device, var.flat<T>(), accum.flat<T>(),
@@ -1646,23 +1712,24 @@ class ApplyAdagradV2Op : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& epsilon = ctx->input(3);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
     const Tensor& grad = ctx->input(4);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyAdagradV2<Device, T>()(device, var.flat<T>(), accum.flat<T>(),
@@ -1747,38 +1814,41 @@ class ApplyProximalAdagradOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     const Tensor& lr = ctx->input(2);
-    OP_REQUIRES(ctx,
-                TensorShapeUtils::IsScalar(lr.shape()) &&
-                    (!std::is_same<Device, CPUDevice>::value ||
-                     lr.scalar<T>()() > static_cast<T>(0)),
-                errors::InvalidArgument("lr is not a positive scalar: ",
-                                        lr.shape().DebugString()));
+    OP_REQUIRES(
+        ctx,
+        TensorShapeUtils::IsScalar(lr.shape()) &&
+            (!std::is_same<Device, CPUDevice>::value ||
+             lr.scalar<T>()() > static_cast<T>(0)),
+        absl::InvalidArgumentError(absl::StrCat("lr is not a positive scalar: ",
+                                                lr.shape().DebugString())));
     const Tensor& l1 = ctx->input(3);
     OP_REQUIRES(ctx,
                 TensorShapeUtils::IsScalar(l1.shape()) &&
                     (!std::is_same<Device, CPUDevice>::value ||
                      l1.scalar<T>()() >= static_cast<T>(0)),
-                errors::InvalidArgument("l1 regularization strength is not a "
-                                        "non-negative scalar: ",
-                                        l1.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a "
+                                 "non-negative scalar: ",
+                                 l1.shape().DebugString())));
     const Tensor& l2 = ctx->input(4);
     OP_REQUIRES(ctx,
                 TensorShapeUtils::IsScalar(l2.shape()) &&
                     (!std::is_same<Device, CPUDevice>::value ||
                      l2.scalar<T>()() >= static_cast<T>(0)),
-                errors::InvalidArgument("l2 regularization strength is not a "
-                                        "non-negative scalar: ",
-                                        l2.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a "
+                                 "non-negative scalar: ",
+                                 l2.shape().DebugString())));
     const Tensor& grad = ctx->input(5);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyProximalAdagrad<Device, T>()(
@@ -1858,36 +1928,40 @@ class SparseApplyAdagradOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& grad = ctx->input(3);
     const Tensor& indices = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
-    int64 inner_dim = 1;
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
+    int64_t inner_dim = 1;
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
       inner_dim *= grad.dim_size(d);
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     OP_REQUIRES(ctx, inner_dim > 0,
-                errors::InvalidArgument(
+                absl::InvalidArgumentError(
                     "Inner dimension should be greater than zero."));
 
     const Device& device = ctx->template eigen_device<Device>();
@@ -1920,7 +1994,7 @@ class SparseApplyAdagradOp : public OpKernel {
                           SparseApplyAdagradOp<D##Device, T, Tindices>);
 #define REGISTER_CPU_KERNELS(T)    \
   REGISTER_KERNELS(CPU, T, int32); \
-  REGISTER_KERNELS(CPU, T, int64);
+  REGISTER_KERNELS(CPU, T, int64_t);
 
 TF_CALL_FLOAT_TYPES(REGISTER_CPU_KERNELS);
 TF_CALL_COMPLEX_TYPES(REGISTER_CPU_KERNELS);
@@ -1938,25 +2012,25 @@ namespace functor {
       typename TTypes<T>::Matrix accum, typename TTypes<T>::ConstScalar lr,    \
       typename TTypes<T>::ConstScalar epsilon,                                 \
       typename TTypes<T>::ConstMatrix grad,                                    \
-      typename TTypes<Tindex>::ConstVec indices, int64 inner_dim,              \
+      typename TTypes<Tindex>::ConstVec indices, int64_t inner_dim,            \
       bool update_slots);                                                      \
   extern template struct SparseApplyAdagrad<GPUDevice, T, Tindex,              \
                                             /*has_epsilon=*/false>;
-DECLARE_GPU_SPEC(Eigen::half, int32);
-DECLARE_GPU_SPEC(Eigen::half, int64);
-DECLARE_GPU_SPEC(float, int32);
-DECLARE_GPU_SPEC(float, int64);
-DECLARE_GPU_SPEC(double, int32);
-DECLARE_GPU_SPEC(double, int64);
+DECLARE_GPU_SPEC(Eigen::half, int32_t);
+DECLARE_GPU_SPEC(Eigen::half, int64_t);
+DECLARE_GPU_SPEC(float, int32_t);
+DECLARE_GPU_SPEC(float, int64_t);
+DECLARE_GPU_SPEC(double, int32_t);
+DECLARE_GPU_SPEC(double, int64_t);
 #undef DECLARE_GPU_SPEC
 }  // namespace functor
 
-REGISTER_KERNELS(GPU, Eigen::half, int32);
-REGISTER_KERNELS(GPU, Eigen::half, int64);
-REGISTER_KERNELS(GPU, float, int32);
-REGISTER_KERNELS(GPU, float, int64);
-REGISTER_KERNELS(GPU, double, int32);
-REGISTER_KERNELS(GPU, double, int64);
+REGISTER_KERNELS(GPU, Eigen::half, int32_t);
+REGISTER_KERNELS(GPU, Eigen::half, int64_t);
+REGISTER_KERNELS(GPU, float, int32_t);
+REGISTER_KERNELS(GPU, float, int64_t);
+REGISTER_KERNELS(GPU, double, int32_t);
+REGISTER_KERNELS(GPU, double, int64_t);
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #undef REGISTER_KERNELS
 
@@ -1988,40 +2062,45 @@ class SparseApplyAdagradV2Op : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& epsilon = ctx->input(3);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
     const Tensor& grad = ctx->input(4);
     const Tensor& indices = ctx->input(5);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
-    int64 inner_dim = 1;
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
+    int64_t inner_dim = 1;
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
       inner_dim *= grad.dim_size(d);
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     OP_REQUIRES(ctx, inner_dim > 0,
-                errors::InvalidArgument(
+                absl::InvalidArgumentError(
                     "Inner dimension should be greater than zero."));
 
     const Device& device = ctx->template eigen_device<Device>();
@@ -2053,7 +2132,7 @@ class SparseApplyAdagradV2Op : public OpKernel {
                           SparseApplyAdagradV2Op<D##Device, T, Tindices>);
 #define REGISTER_CPU_KERNELS(T)    \
   REGISTER_KERNELS(CPU, T, int32); \
-  REGISTER_KERNELS(CPU, T, int64);
+  REGISTER_KERNELS(CPU, T, int64_t);
 
 TF_CALL_FLOAT_TYPES(REGISTER_CPU_KERNELS);
 TF_CALL_COMPLEX_TYPES(REGISTER_CPU_KERNELS);
@@ -2071,25 +2150,25 @@ namespace functor {
       typename TTypes<T>::Matrix accum, typename TTypes<T>::ConstScalar lr,   \
       typename TTypes<T>::ConstScalar epsilon,                                \
       typename TTypes<T>::ConstMatrix grad,                                   \
-      typename TTypes<Tindex>::ConstVec indices, int64 inner_dim,             \
+      typename TTypes<Tindex>::ConstVec indices, int64_t inner_dim,           \
       bool update_slots);                                                     \
   extern template struct SparseApplyAdagrad<GPUDevice, T, Tindex,             \
                                             /*has_epsilon=*/true>;
-DECLARE_GPU_SPEC(Eigen::half, int32);
-DECLARE_GPU_SPEC(Eigen::half, int64);
-DECLARE_GPU_SPEC(float, int32);
-DECLARE_GPU_SPEC(float, int64);
-DECLARE_GPU_SPEC(double, int32);
-DECLARE_GPU_SPEC(double, int64);
+DECLARE_GPU_SPEC(Eigen::half, int32_t);
+DECLARE_GPU_SPEC(Eigen::half, int64_t);
+DECLARE_GPU_SPEC(float, int32_t);
+DECLARE_GPU_SPEC(float, int64_t);
+DECLARE_GPU_SPEC(double, int32_t);
+DECLARE_GPU_SPEC(double, int64_t);
 #undef DECLARE_GPU_SPEC
 }  // namespace functor
 
-REGISTER_KERNELS(GPU, Eigen::half, int32);
-REGISTER_KERNELS(GPU, Eigen::half, int64);
-REGISTER_KERNELS(GPU, float, int32);
-REGISTER_KERNELS(GPU, float, int64);
-REGISTER_KERNELS(GPU, double, int32);
-REGISTER_KERNELS(GPU, double, int64);
+REGISTER_KERNELS(GPU, Eigen::half, int32_t);
+REGISTER_KERNELS(GPU, Eigen::half, int64_t);
+REGISTER_KERNELS(GPU, float, int32_t);
+REGISTER_KERNELS(GPU, float, int64_t);
+REGISTER_KERNELS(GPU, double, int32_t);
+REGISTER_KERNELS(GPU, double, int64_t);
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #undef REGISTER_KERNELS
 
@@ -2121,56 +2200,63 @@ class SparseApplyProximalAdagradOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& lr = ctx->input(2);
-    OP_REQUIRES(ctx,
-                TensorShapeUtils::IsScalar(lr.shape()) &&
-                    (!std::is_same<Device, CPUDevice>::value ||
-                     lr.scalar<T>()() > static_cast<T>(0)),
-                errors::InvalidArgument("lr is not a positive scalar: ",
-                                        lr.shape().DebugString()));
+    OP_REQUIRES(
+        ctx,
+        TensorShapeUtils::IsScalar(lr.shape()) &&
+            (!std::is_same<Device, CPUDevice>::value ||
+             lr.scalar<T>()() > static_cast<T>(0)),
+        absl::InvalidArgumentError(absl::StrCat("lr is not a positive scalar: ",
+                                                lr.shape().DebugString())));
     const Tensor& l1 = ctx->input(3);
     OP_REQUIRES(ctx,
                 TensorShapeUtils::IsScalar(l1.shape()) &&
                     (!std::is_same<Device, CPUDevice>::value ||
                      l1.scalar<T>()() >= static_cast<T>(0)),
-                errors::InvalidArgument("l1 regularization strength is not a "
-                                        "non-negative scalar: ",
-                                        l1.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a "
+                                 "non-negative scalar: ",
+                                 l1.shape().DebugString())));
     const Tensor& l2 = ctx->input(4);
     OP_REQUIRES(ctx,
                 TensorShapeUtils::IsScalar(l2.shape()) &&
                     (!std::is_same<Device, CPUDevice>::value ||
                      l2.scalar<T>()() >= static_cast<T>(0)),
-                errors::InvalidArgument("l2 regularization strength is not a "
-                                        "non-negative scalar: ",
-                                        l2.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a "
+                                 "non-negative scalar: ",
+                                 l2.shape().DebugString())));
 
     const Tensor& grad = ctx->input(5);
     const Tensor& indices = ctx->input(6);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
-    int64 inner_dim = 1;
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
+    int64_t inner_dim = 1;
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
       inner_dim *= grad.dim_size(d);
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     OP_REQUIRES(ctx, inner_dim > 0,
-                errors::InvalidArgument(
+                absl::InvalidArgumentError(
                     "Inner dimension should be greater than zero."));
 
     const Device& device = ctx->template eigen_device<Device>();
@@ -2201,10 +2287,10 @@ class SparseApplyProximalAdagradOp : public OpKernel {
           .TypeConstraint<Tindices>("Tindices"),             \
       SparseApplyProximalAdagradOp<D##Device, T, Tindices>);
 
-REGISTER_KERNELS(CPU, float, int32);
-REGISTER_KERNELS(CPU, float, int64);
-REGISTER_KERNELS(CPU, double, int32);
-REGISTER_KERNELS(CPU, double, int64);
+REGISTER_KERNELS(CPU, float, int32_t);
+REGISTER_KERNELS(CPU, float, int64_t);
+REGISTER_KERNELS(CPU, double, int32_t);
+REGISTER_KERNELS(CPU, double, int64_t);
 
 #if GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 // Forward declarations of the functor specializations for GPU.
@@ -2216,23 +2302,23 @@ namespace functor {
       typename TTypes<T>::Matrix accum, typename TTypes<T>::ConstScalar lr,   \
       typename TTypes<T>::ConstScalar l1, typename TTypes<T>::ConstScalar l2, \
       typename TTypes<T>::ConstMatrix grad,                                   \
-      typename TTypes<Tindex>::ConstVec indices, int64 inner_dim);            \
+      typename TTypes<Tindex>::ConstVec indices, int64_t inner_dim);          \
   extern template struct SparseApplyProximalAdagrad<GPUDevice, T, Tindex>;
-DECLARE_GPU_SPEC(Eigen::half, int32);
-DECLARE_GPU_SPEC(Eigen::half, int64);
-DECLARE_GPU_SPEC(float, int32);
-DECLARE_GPU_SPEC(float, int64);
-DECLARE_GPU_SPEC(double, int32);
-DECLARE_GPU_SPEC(double, int64);
+DECLARE_GPU_SPEC(Eigen::half, int32_t);
+DECLARE_GPU_SPEC(Eigen::half, int64_t);
+DECLARE_GPU_SPEC(float, int32_t);
+DECLARE_GPU_SPEC(float, int64_t);
+DECLARE_GPU_SPEC(double, int32_t);
+DECLARE_GPU_SPEC(double, int64_t);
 #undef DECLARE_GPU_SPEC
 }  // namespace functor
 
-REGISTER_KERNELS(GPU, Eigen::half, int32);
-REGISTER_KERNELS(GPU, Eigen::half, int64);
-REGISTER_KERNELS(GPU, float, int32);
-REGISTER_KERNELS(GPU, float, int64);
-REGISTER_KERNELS(GPU, double, int32);
-REGISTER_KERNELS(GPU, double, int64);
+REGISTER_KERNELS(GPU, Eigen::half, int32_t);
+REGISTER_KERNELS(GPU, Eigen::half, int64_t);
+REGISTER_KERNELS(GPU, float, int32_t);
+REGISTER_KERNELS(GPU, float, int64_t);
+REGISTER_KERNELS(GPU, double, int32_t);
+REGISTER_KERNELS(GPU, double, int64_t);
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #undef REGISTER_KERNELS
 
@@ -2270,48 +2356,49 @@ class ApplyAdagradDAOp : public OpKernel {
         ctx, gradient_squared_accum.IsInitialized(),
         errors::FailedPrecondition(
             "Attempting to use uninitialized variables: ", requested_input(2)));
-    OP_REQUIRES(
-        ctx, var.shape().IsSameSize(gradient_accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                gradient_accum.shape().DebugString()));
-    OP_REQUIRES(
-        ctx, var.shape().IsSameSize(gradient_squared_accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                gradient_squared_accum.shape().DebugString()));
+    OP_REQUIRES(ctx, var.shape().IsSameSize(gradient_accum.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("var and accum do not have the same shape",
+                                 var.shape().DebugString(), " ",
+                                 gradient_accum.shape().DebugString())));
+    OP_REQUIRES(ctx, var.shape().IsSameSize(gradient_squared_accum.shape()),
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and accum do not have the same shape",
+                    var.shape().DebugString(), " ",
+                    gradient_squared_accum.shape().DebugString())));
 
     const Tensor& grad = ctx->input(3);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Tensor& lr = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& l1 = ctx->input(5);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l1.shape()),
-        errors::InvalidArgument("l1 regularization strength is not a scalar: ",
-                                l1.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l1.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a scalar: ",
+                                 l1.shape().DebugString())));
     const Tensor& l2 = ctx->input(6);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l2.shape()),
-        errors::InvalidArgument("l2 regularization strength is not a scalar: ",
-                                l2.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l2.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a scalar: ",
+                                 l2.shape().DebugString())));
     const Tensor& global_step = ctx->input(7);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(global_step.shape()),
-                errors::InvalidArgument("global_step is not a scalar: ",
-                                        global_step.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("global_step is not a scalar: ",
+                                 global_step.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyAdagradDA<Device, T>()(
         device, var.flat<T>(), gradient_accum.flat<T>(),
         gradient_squared_accum.flat<T>(), lr.scalar<T>(),
-        global_step.scalar<int64>()(), l1.scalar<T>(), l2.scalar<T>(),
+        global_step.scalar<int64_t>()(), l1.scalar<T>(), l2.scalar<T>(),
         grad.flat<T>());
 
     MaybeForwardRefInputToRefOutput(ctx, 0, 0);
@@ -2372,62 +2459,67 @@ class SparseApplyAdagradDAOp : public OpKernel {
         ctx, gradient_squared_accum.IsInitialized(),
         errors::FailedPrecondition(
             "Attempting to use uninitialized variables: ", requested_input(2)));
-    OP_REQUIRES(
-        ctx, var.shape().IsSameSize(gradient_accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                gradient_accum.shape().DebugString()));
-    OP_REQUIRES(
-        ctx, var.shape().IsSameSize(gradient_squared_accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                gradient_squared_accum.shape().DebugString()));
+    OP_REQUIRES(ctx, var.shape().IsSameSize(gradient_accum.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("var and accum do not have the same shape",
+                                 var.shape().DebugString(), " ",
+                                 gradient_accum.shape().DebugString())));
+    OP_REQUIRES(ctx, var.shape().IsSameSize(gradient_squared_accum.shape()),
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and accum do not have the same shape",
+                    var.shape().DebugString(), " ",
+                    gradient_squared_accum.shape().DebugString())));
 
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& grad = ctx->input(3);
     const Tensor& indices = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
     const Tensor& lr = ctx->input(5);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
 
     const Tensor& l1 = ctx->input(6);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l1.shape()),
-        errors::InvalidArgument("l1 regularization strength is not a scalar: ",
-                                l1.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l1.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a scalar: ",
+                                 l1.shape().DebugString())));
 
     const Tensor& l2 = ctx->input(7);
-    OP_REQUIRES(
-        ctx, TensorShapeUtils::IsScalar(l2.shape()),
-        errors::InvalidArgument("l2 regularization strength is not a scalar: ",
-                                l2.shape().DebugString()));
+    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l2.shape()),
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a scalar: ",
+                                 l2.shape().DebugString())));
 
     const Tensor& global_step = ctx->input(8);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(global_step.shape()),
-                errors::InvalidArgument("global_step is not a scalar: ",
-                                        global_step.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("global_step is not a scalar: ",
+                                 global_step.shape().DebugString())));
 
-    int64 inner_dim = 1;
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
+    int64_t inner_dim = 1;
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
       inner_dim *= grad.dim_size(d);
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     OP_REQUIRES(ctx, inner_dim > 0,
-                errors::InvalidArgument(
+                absl::InvalidArgumentError(
                     "Inner dimension should be greater than zero."));
 
     // AdagradDA update:
@@ -2445,7 +2537,7 @@ class SparseApplyAdagradDAOp : public OpKernel {
             gradient_squared_accum.flat_outer_dims<T>();
         auto grad_flat = grad.flat_outer_dims<T>();
         T lr_scalar = lr.scalar<T>()();
-        T global_step_scalar = global_step.scalar<int64>()();
+        T global_step_scalar = global_step.scalar<int64_t>()();
         T l1_scalar = l1.scalar<T>()();
         T l2_scalar = l2.scalar<T>()();
         const double gs_lr = global_step_scalar * lr_scalar;
@@ -2480,7 +2572,7 @@ class SparseApplyAdagradDAOp : public OpKernel {
         auto gradient_squared_accum_flat = gradient_squared_accum.flat<T>();
         auto grad_flat = grad.flat<T>();
         const double lr_scalar = lr.scalar<T>()();
-        const int64 global_step_scalar = global_step.scalar<int64>()();
+        const int64_t global_step_scalar = global_step.scalar<int64_t>()();
         const double l1_scalar = l1.scalar<T>()();
         const double l2_scalar = l2.scalar<T>()();
         const Tindex first_dim_size = var_flat.size();
@@ -2531,10 +2623,10 @@ class SparseApplyAdagradDAOp : public OpKernel {
                               .TypeConstraint<Tindices>("Tindices"),      \
                           SparseApplyAdagradDAOp<T, Tindices>);
 
-REGISTER_KERNELS(float, int32);
-REGISTER_KERNELS(float, int64);
-REGISTER_KERNELS(double, int32);
-REGISTER_KERNELS(double, int64);
+REGISTER_KERNELS(float, int32_t);
+REGISTER_KERNELS(float, int64_t);
+REGISTER_KERNELS(double, int32_t);
+REGISTER_KERNELS(double, int64_t);
 #undef REGISTER_KERNELS
 
 template <typename Device, typename T, bool has_l2_shrinkage>
@@ -2576,55 +2668,58 @@ class ApplyFtrlOp : public OpKernel {
     const Tensor& grad = ctx->input(3);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(linear.shape()),
-        errors::InvalidArgument("var and linear do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                linear.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and linear do not have the same shape",
+            var.shape().DebugString(), " ", linear.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Tensor& lr = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& l1 = ctx->input(5);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l1.shape()),
-                errors::InvalidArgument("l1 regularization strength is not a "
-                                        "scalar: ",
-                                        l1.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a "
+                                 "scalar: ",
+                                 l1.shape().DebugString())));
     const Tensor& l2 = ctx->input(6);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l2.shape()),
-                errors::InvalidArgument("l2 regularization strength is not a "
-                                        "scalar: ",
-                                        l2.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a "
+                                 "scalar: ",
+                                 l2.shape().DebugString())));
     const int lr_power_index = has_l2_shrinkage ? 8 : 7;
     const Tensor& lr_power = ctx->input(lr_power_index);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr_power.shape()),
-                errors::InvalidArgument("lr_power is not a scalar",
-                                        lr_power.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(lr_power.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "lr_power is not a scalar", lr_power.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     if (has_l2_shrinkage) {
       const Tensor& l2_shrinkage = ctx->input(7);
-      OP_REQUIRES(
-          ctx, TensorShapeUtils::IsScalar(l2_shrinkage.shape()),
-          errors::InvalidArgument("l2 shrinkage regularization strength "
-                                  "is not a scalar: ",
-                                  l2_shrinkage.shape().DebugString()));
+      OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(l2_shrinkage.shape()),
+                  absl::InvalidArgumentError(
+                      absl::StrCat("l2 shrinkage regularization strength "
+                                   "is not a scalar: ",
+                                   l2_shrinkage.shape().DebugString())));
       if (multiply_linear_by_lr_) {
-        functor::ApplyFtrlV2<Device, T>()(
+        functor::ApplyFtrlV2MultiplyLinearByLr<Device, T>()(
             device, var.flat<T>(), accum.flat<T>(), linear.flat<T>(),
             grad.flat<T>(), lr.scalar<T>(), l1.scalar<T>(), l2.scalar<T>(),
             l2_shrinkage.scalar<T>(), lr_power.scalar<T>());
       } else {
-        functor::ApplyFtrlV2MultiplyLinearByLr<Device, T>()(
+        functor::ApplyFtrlV2<Device, T>()(
             device, var.flat<T>(), accum.flat<T>(), linear.flat<T>(),
             grad.flat<T>(), lr.scalar<T>(), l1.scalar<T>(), l2.scalar<T>(),
             l2_shrinkage.scalar<T>(), lr_power.scalar<T>());
@@ -2783,21 +2878,22 @@ class SparseApplyFtrlOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(2)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(linear.shape()),
-        errors::InvalidArgument("var and linear do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                linear.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and linear do not have the same shape",
+            var.shape().DebugString(), " ", linear.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& grad = ctx->input(3);
     const Tensor& indices = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
     // Note: The range checks on lr, l1, l2, and lr_power below are disabled
     // for non-CPU devices because their values cannot be accessed directly from
@@ -2810,63 +2906,70 @@ class SparseApplyFtrlOp : public OpKernel {
             (!std::is_same<Device, CPUDevice>::value ||
              lr.scalar<T>()() > static_cast<T>(0) ||
              (multiply_linear_by_lr_ && lr.scalar<T>()() >= static_cast<T>(0))),
-        errors::InvalidArgument("lr is not a positive scalar (or zero if "
-                                "multiply_linear_by_lr is set): ",
-                                lr.shape().DebugString()));
+        absl::InvalidArgumentError(
+            absl::StrCat("lr is not a positive scalar (or zero if "
+                         "multiply_linear_by_lr is set): ",
+                         lr.shape().DebugString())));
 
     const Tensor& l1 = ctx->input(6);
     OP_REQUIRES(ctx,
                 TensorShapeUtils::IsScalar(l1.shape()) &&
                     (!std::is_same<Device, CPUDevice>::value ||
                      l1.scalar<T>()() >= static_cast<T>(0)),
-                errors::InvalidArgument("l1 regularization strength is not a "
-                                        "non-negative scalar: ",
-                                        l1.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l1 regularization strength is not a "
+                                 "non-negative scalar: ",
+                                 l1.shape().DebugString())));
     const Tensor& l2 = ctx->input(7);
     OP_REQUIRES(ctx,
                 TensorShapeUtils::IsScalar(l2.shape()) &&
                     (!std::is_same<Device, CPUDevice>::value ||
                      l2.scalar<T>()() >= static_cast<T>(0)),
-                errors::InvalidArgument("l2 regularization strength is not a "
-                                        "non-negative scalar: ",
-                                        l2.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("l2 regularization strength is not a "
+                                 "non-negative scalar: ",
+                                 l2.shape().DebugString())));
     const int lr_power_index = has_l2_shrinkage ? 9 : 8;
     const Tensor& lr_power = ctx->input(lr_power_index);
     OP_REQUIRES(ctx,
                 TensorShapeUtils::IsScalar(lr_power.shape()) &&
                     (!std::is_same<Device, CPUDevice>::value ||
                      lr_power.scalar<T>()() <= static_cast<T>(0)),
-                errors::InvalidArgument("lr_power is not a "
-                                        "non-positive scalar: ",
-                                        lr_power.shape().DebugString()));
-    int64 inner_dim = 1;
+                absl::InvalidArgumentError(
+                    absl::StrCat("lr_power is not a "
+                                 "non-positive scalar: ",
+                                 lr_power.shape().DebugString())));
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
+    int64_t inner_dim = 1;
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
       inner_dim *= grad.dim_size(d);
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     OP_REQUIRES(ctx, inner_dim > 0,
-                errors::InvalidArgument(
+                absl::InvalidArgumentError(
                     "Inner dimension should be greater than zero."));
 
     const Tensor* l2_shrinkage;
     if (has_l2_shrinkage) {
       l2_shrinkage = &ctx->input(8);
-      OP_REQUIRES(
-          ctx,
-          TensorShapeUtils::IsScalar(l2_shrinkage->shape()) &&
-              (!std::is_same<Device, CPUDevice>::value ||
-               l2_shrinkage->scalar<T>()() >= static_cast<T>(0)),
-          errors::InvalidArgument("l2 shrinkage regularization strength "
-                                  "is not a non-negative scalar: ",
-                                  l2_shrinkage->shape().DebugString()));
+      OP_REQUIRES(ctx,
+                  TensorShapeUtils::IsScalar(l2_shrinkage->shape()) &&
+                      (!std::is_same<Device, CPUDevice>::value ||
+                       l2_shrinkage->scalar<T>()() >= static_cast<T>(0)),
+                  absl::InvalidArgumentError(
+                      absl::StrCat("l2 shrinkage regularization strength "
+                                   "is not a non-negative scalar: ",
+                                   l2_shrinkage->shape().DebugString())));
     }
 
     const Device& device = ctx->template eigen_device<Device>();
@@ -2905,7 +3008,7 @@ class SparseApplyFtrlOp : public OpKernel {
       SparseApplyFtrlOp<D##Device, T, Tindices, /*has_l2_shrinkage=*/false>);
 #define REGISTER_CPU_KERNELS(T)    \
   REGISTER_KERNELS(CPU, T, int32); \
-  REGISTER_KERNELS(CPU, T, int64);
+  REGISTER_KERNELS(CPU, T, int64_t);
 
 TF_CALL_half(REGISTER_CPU_KERNELS);
 TF_CALL_bfloat16(REGISTER_CPU_KERNELS);
@@ -2928,25 +3031,25 @@ namespace functor {
       typename TTypes<T>::ConstScalar l2_shrinkage,                           \
       typename TTypes<T>::ConstScalar lr_power,                               \
       typename TTypes<T>::ConstMatrix grad,                                   \
-      typename TTypes<Tindex>::ConstVec indices, int64 inner_dim,             \
+      typename TTypes<Tindex>::ConstVec indices, int64_t inner_dim,           \
       bool multiply_linear_by_lr);                                            \
   extern template struct SparseApplyFtrl<GPUDevice, T, Tindex,                \
                                          /*has_l2_shrinkage=*/false>;
-DECLARE_GPU_SPEC(Eigen::half, int32);
-DECLARE_GPU_SPEC(Eigen::half, int64);
-DECLARE_GPU_SPEC(float, int32);
-DECLARE_GPU_SPEC(float, int64);
-DECLARE_GPU_SPEC(double, int32);
-DECLARE_GPU_SPEC(double, int64);
+DECLARE_GPU_SPEC(Eigen::half, int32_t);
+DECLARE_GPU_SPEC(Eigen::half, int64_t);
+DECLARE_GPU_SPEC(float, int32_t);
+DECLARE_GPU_SPEC(float, int64_t);
+DECLARE_GPU_SPEC(double, int32_t);
+DECLARE_GPU_SPEC(double, int64_t);
 #undef DECLARE_GPU_SPEC
 }  // namespace functor
 
-REGISTER_KERNELS(GPU, Eigen::half, int32);
-REGISTER_KERNELS(GPU, Eigen::half, int64);
-REGISTER_KERNELS(GPU, float, int32);
-REGISTER_KERNELS(GPU, float, int64);
-REGISTER_KERNELS(GPU, double, int32);
-REGISTER_KERNELS(GPU, double, int64);
+REGISTER_KERNELS(GPU, Eigen::half, int32_t);
+REGISTER_KERNELS(GPU, Eigen::half, int64_t);
+REGISTER_KERNELS(GPU, float, int32_t);
+REGISTER_KERNELS(GPU, float, int64_t);
+REGISTER_KERNELS(GPU, double, int32_t);
+REGISTER_KERNELS(GPU, double, int64_t);
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #undef REGISTER_KERNELS
 
@@ -2965,7 +3068,7 @@ REGISTER_KERNELS(GPU, double, int64);
       SparseApplyFtrlOp<D##Device, T, Tindices, /*has_l2_shrinkage=*/true>);
 #define REGISTER_CPU_KERNELS(T)    \
   REGISTER_KERNELS(CPU, T, int32); \
-  REGISTER_KERNELS(CPU, T, int64);
+  REGISTER_KERNELS(CPU, T, int64_t);
 
 TF_CALL_half(REGISTER_CPU_KERNELS);
 TF_CALL_bfloat16(REGISTER_CPU_KERNELS);
@@ -2988,25 +3091,25 @@ namespace functor {
       typename TTypes<T>::ConstScalar l2_shrinkage,                           \
       typename TTypes<T>::ConstScalar lr_power,                               \
       typename TTypes<T>::ConstMatrix grad,                                   \
-      typename TTypes<Tindex>::ConstVec indices, int64 inner_dim,             \
+      typename TTypes<Tindex>::ConstVec indices, int64_t inner_dim,           \
       bool multiply_linear_by_lr);                                            \
   extern template struct SparseApplyFtrl<GPUDevice, T, Tindex,                \
                                          /*has_l2_shrinkage=*/true>;
-DECLARE_GPU_SPEC(Eigen::half, int32);
-DECLARE_GPU_SPEC(Eigen::half, int64);
-DECLARE_GPU_SPEC(float, int32);
-DECLARE_GPU_SPEC(float, int64);
-DECLARE_GPU_SPEC(double, int32);
-DECLARE_GPU_SPEC(double, int64);
+DECLARE_GPU_SPEC(Eigen::half, int32_t);
+DECLARE_GPU_SPEC(Eigen::half, int64_t);
+DECLARE_GPU_SPEC(float, int32_t);
+DECLARE_GPU_SPEC(float, int64_t);
+DECLARE_GPU_SPEC(double, int32_t);
+DECLARE_GPU_SPEC(double, int64_t);
 #undef DECLARE_GPU_SPEC
 }  // namespace functor
 
-REGISTER_KERNELS(GPU, Eigen::half, int32);
-REGISTER_KERNELS(GPU, Eigen::half, int64);
-REGISTER_KERNELS(GPU, float, int32);
-REGISTER_KERNELS(GPU, float, int64);
-REGISTER_KERNELS(GPU, double, int32);
-REGISTER_KERNELS(GPU, double, int64);
+REGISTER_KERNELS(GPU, Eigen::half, int32_t);
+REGISTER_KERNELS(GPU, Eigen::half, int64_t);
+REGISTER_KERNELS(GPU, float, int32_t);
+REGISTER_KERNELS(GPU, float, int64_t);
+REGISTER_KERNELS(GPU, double, int32_t);
+REGISTER_KERNELS(GPU, double, int64_t);
 #endif  // GOOGLE_CUDA || TENSORFLOW_USE_ROCM
 #undef REGISTER_KERNELS
 
@@ -3039,24 +3142,25 @@ class ApplyMomentumOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& grad = ctx->input(3);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Tensor& momentum = ctx->input(4);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyMomentum<Device, T>()(device, var.flat<T>(), accum.flat<T>(),
@@ -3143,36 +3247,41 @@ class SparseApplyMomentumOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar : ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar : ", lr.shape().DebugString())));
     const Tensor& grad = ctx->input(3);
     const Tensor& indices = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     const Tensor& momentum = ctx->input(5);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
 
     if (N > 0) {
       const Tindex first_dim_size = var.dim_size(0);
@@ -3223,7 +3332,7 @@ class SparseApplyMomentumOp : public OpKernel {
                           SparseApplyMomentumOp<T, Tindices>);
 #define REGISTER_CPU_KERNELS(T) \
   REGISTER_KERNELS(T, int32);   \
-  REGISTER_KERNELS(T, int64);
+  REGISTER_KERNELS(T, int64_t);
 
 TF_CALL_FLOAT_TYPES(REGISTER_CPU_KERNELS);
 TF_CALL_COMPLEX_TYPES(REGISTER_CPU_KERNELS);
@@ -3260,24 +3369,25 @@ class ApplyKerasMomentumOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& grad = ctx->input(3);
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Tensor& momentum = ctx->input(4);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyKerasMomentum<Device, T>()(
@@ -3362,36 +3472,41 @@ class SparseApplyKerasMomentumOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(accum.shape()),
-        errors::InvalidArgument("var and accum do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                accum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and accum do not have the same shape",
+            var.shape().DebugString(), " ", accum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar : ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar : ", lr.shape().DebugString())));
     const Tensor& grad = ctx->input(3);
     const Tensor& indices = ctx->input(4);
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
     for (int d = 1; d < var.dims(); d++) {
       OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
-                  errors::InvalidArgument(strings::StrCat(
+                  absl::InvalidArgumentError(absl::StrCat(
                       "var and grad must match in dimension ", d)));
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     const Tensor& momentum = ctx->input(5);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     auto indices_flat = indices.flat<Tindex>();
@@ -3401,9 +3516,9 @@ class SparseApplyKerasMomentumOp : public OpKernel {
         momentum.scalar<T>(), use_nesterov_);
     OP_REQUIRES(
         ctx, bad_i < 0,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(absl::StrCat(
             "indices", SliceDebugString(indices.shape(), bad_i), " = ",
-            indices_flat(bad_i), " is not in [0, ", var.dim_size(0), ")"));
+            indices_flat(bad_i), " is not in [0, ", var.dim_size(0), ")")));
 
     MaybeForwardRefInputToRefOutput(ctx, 0, 0);
   }
@@ -3421,7 +3536,7 @@ class SparseApplyKerasMomentumOp : public OpKernel {
                           SparseApplyKerasMomentumOp<T, D##Device, Tindices>);
 #define REGISTER_CPU_KERNELS(T)    \
   REGISTER_KERNELS(T, CPU, int32); \
-  REGISTER_KERNELS(T, CPU, int64);
+  REGISTER_KERNELS(T, CPU, int64_t);
 
 TF_CALL_FLOAT_TYPES(REGISTER_CPU_KERNELS);
 TF_CALL_COMPLEX_TYPES(REGISTER_CPU_KERNELS);
@@ -3440,22 +3555,22 @@ namespace functor {
       typename TTypes<Tindex>::ConstFlat indices,                           \
       typename TTypes<T>::ConstScalar momentum, bool use_nesterov);         \
   extern template struct SparseApplyKerasMomentum<GPUDevice, T, Tindex>;
-DECLARE_GPU_SPEC(Eigen::half, int32);
-DECLARE_GPU_SPEC(Eigen::half, int64);
-DECLARE_GPU_SPEC(float, int32);
-DECLARE_GPU_SPEC(float, int64);
-DECLARE_GPU_SPEC(double, int32);
-DECLARE_GPU_SPEC(double, int64);
-DECLARE_GPU_SPEC(complex64, int32);
-DECLARE_GPU_SPEC(complex64, int64);
-DECLARE_GPU_SPEC(complex128, int32);
-DECLARE_GPU_SPEC(complex128, int64);
+DECLARE_GPU_SPEC(Eigen::half, int32_t);
+DECLARE_GPU_SPEC(Eigen::half, int64_t);
+DECLARE_GPU_SPEC(float, int32_t);
+DECLARE_GPU_SPEC(float, int64_t);
+DECLARE_GPU_SPEC(double, int32_t);
+DECLARE_GPU_SPEC(double, int64_t);
+DECLARE_GPU_SPEC(complex64, int32_t);
+DECLARE_GPU_SPEC(complex64, int64_t);
+DECLARE_GPU_SPEC(complex128, int32_t);
+DECLARE_GPU_SPEC(complex128, int64_t);
 #undef DECLARE_GPU_SPEC
 }  // namespace functor
 
 #define REGISTER_GPU_KERNELS(T)    \
   REGISTER_KERNELS(T, GPU, int32); \
-  REGISTER_KERNELS(T, GPU, int64);
+  REGISTER_KERNELS(T, GPU, int64_t);
 
 REGISTER_GPU_KERNELS(Eigen::half);
 REGISTER_GPU_KERNELS(float);
@@ -3509,38 +3624,41 @@ class ApplyAdamOp : public OpKernel {
     const Tensor& epsilon = ctx->input(8);
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta1_power.shape()),
-                errors::InvalidArgument("beta1_power is not a scalar: ",
-                                        beta1_power.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("beta1_power is not a scalar: ",
+                                 beta1_power.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta2_power.shape()),
-                errors::InvalidArgument("beta2_power is not a scalar: ",
-                                        beta2_power.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("beta2_power is not a scalar: ",
+                                 beta2_power.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar : ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar : ", lr.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta1.shape()),
-                errors::InvalidArgument("beta1 is not a scalar: ",
-                                        beta1.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta1 is not a scalar: ", beta1.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta2.shape()),
-                errors::InvalidArgument("beta2 is not a scalar: ",
-                                        beta2.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta2 is not a scalar: ", beta2.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     const Tensor& grad = ctx->input(9);
     OP_REQUIRES(ctx, var.shape().IsSameSize(m.shape()),
-                errors::InvalidArgument("var and m do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        m.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and m do not have the same shape",
+                    var.shape().DebugString(), " ", m.shape().DebugString())));
     OP_REQUIRES(ctx, var.shape().IsSameSize(v.shape()),
-                errors::InvalidArgument("var and v do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        v.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and v do not have the same shape",
+                    var.shape().DebugString(), " ", v.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyAdam<Device, T>()(
@@ -3616,7 +3734,7 @@ class ApplyAdamWithAmsgradOp : public OpKernel {
   void Compute(OpKernelContext* ctx) override {
     const bool sparse = false;
     auto locks = MaybeLockVariableInputMutexesInOrder<Device, T>(
-        ctx, use_exclusive_lock_, sparse, {0, 1, 2});
+        ctx, use_exclusive_lock_, sparse, {0, 1, 2, 3});
 
     Tensor var;
     OP_REQUIRES_OK(ctx, GetInputTensorFromVariable<Device, T>(
@@ -3655,38 +3773,41 @@ class ApplyAdamWithAmsgradOp : public OpKernel {
     const Tensor& epsilon = ctx->input(9);
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta1_power.shape()),
-                errors::InvalidArgument("beta1_power is not a scalar: ",
-                                        beta1_power.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("beta1_power is not a scalar: ",
+                                 beta1_power.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta2_power.shape()),
-                errors::InvalidArgument("beta2_power is not a scalar: ",
-                                        beta2_power.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("beta2_power is not a scalar: ",
+                                 beta2_power.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar : ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar : ", lr.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta1.shape()),
-                errors::InvalidArgument("beta1 is not a scalar: ",
-                                        beta1.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta1 is not a scalar: ", beta1.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta2.shape()),
-                errors::InvalidArgument("beta2 is not a scalar: ",
-                                        beta2.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta2 is not a scalar: ", beta2.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     const Tensor& grad = ctx->input(10);
     OP_REQUIRES(ctx, var.shape().IsSameSize(m.shape()),
-                errors::InvalidArgument("var and m do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        m.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and m do not have the same shape",
+                    var.shape().DebugString(), " ", m.shape().DebugString())));
     OP_REQUIRES(ctx, var.shape().IsSameSize(v.shape()),
-                errors::InvalidArgument("var and v do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        v.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and v do not have the same shape",
+                    var.shape().DebugString(), " ", v.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyAdamWithAmsgrad<Device, T>()(
@@ -3789,35 +3910,37 @@ class ApplyAdaMaxOp : public OpKernel {
     const Tensor& epsilon = ctx->input(7);
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta1_power.shape()),
-                errors::InvalidArgument("beta1_power is not a scalar: ",
-                                        beta1_power.shape().DebugString()));
+                absl::InvalidArgumentError(
+                    absl::StrCat("beta1_power is not a scalar: ",
+                                 beta1_power.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar : ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar : ", lr.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta1.shape()),
-                errors::InvalidArgument("beta1 is not a scalar: ",
-                                        beta1.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta1 is not a scalar: ", beta1.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta2.shape()),
-                errors::InvalidArgument("beta2 is not a scalar: ",
-                                        beta2.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta2 is not a scalar: ", beta2.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     const Tensor& grad = ctx->input(8);
     OP_REQUIRES(ctx, var.shape().IsSameSize(m.shape()),
-                errors::InvalidArgument("var and m do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        m.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and m do not have the same shape",
+                    var.shape().DebugString(), " ", m.shape().DebugString())));
     OP_REQUIRES(ctx, var.shape().IsSameSize(v.shape()),
-                errors::InvalidArgument("var and v do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        v.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and v do not have the same shape",
+                    var.shape().DebugString(), " ", v.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyAdaMax<Device, T>()(
@@ -3919,33 +4042,36 @@ class ApplyRMSPropOp : public OpKernel {
     const Tensor& grad = ctx->input(7);
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar : ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar : ", lr.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(rho.shape()),
-                errors::InvalidArgument("rho is not a scalar: ",
-                                        rho.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "rho is not a scalar: ", rho.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     OP_REQUIRES(ctx, var.shape().IsSameSize(ms.shape()),
-                errors::InvalidArgument("var and ms do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        ms.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and ms do not have the same shape",
+                    var.shape().DebugString(), " ", ms.shape().DebugString())));
 
-    OP_REQUIRES(ctx, var.shape().IsSameSize(mom.shape()),
-                errors::InvalidArgument(
-                    "var and mom do not have the same shape",
-                    var.shape().DebugString(), " ", mom.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, var.shape().IsSameSize(mom.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and mom do not have the same shape", var.shape().DebugString(),
+            " ", mom.shape().DebugString())));
 
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyRMSProp<Device, T>()(device, var.flat<T>(), ms.flat<T>(),
@@ -4009,38 +4135,41 @@ class ApplyCenteredRMSPropOp : public OpKernel {
     const Tensor& grad = ctx->input(8);
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar : ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar : ", lr.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(rho.shape()),
-                errors::InvalidArgument("rho is not a scalar: ",
-                                        rho.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "rho is not a scalar: ", rho.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     OP_REQUIRES(ctx, var.shape().IsSameSize(mg.shape()),
-                errors::InvalidArgument("var and mg do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        ms.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and mg do not have the same shape",
+                    var.shape().DebugString(), " ", ms.shape().DebugString())));
 
     OP_REQUIRES(ctx, var.shape().IsSameSize(ms.shape()),
-                errors::InvalidArgument("var and ms do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        ms.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and ms do not have the same shape",
+                    var.shape().DebugString(), " ", ms.shape().DebugString())));
 
-    OP_REQUIRES(ctx, var.shape().IsSameSize(mom.shape()),
-                errors::InvalidArgument(
-                    "var and mom do not have the same shape",
-                    var.shape().DebugString(), " ", mom.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, var.shape().IsSameSize(mom.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and mom do not have the same shape", var.shape().DebugString(),
+            " ", mom.shape().DebugString())));
 
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyCenteredRMSProp<Device, T>()(
@@ -4163,45 +4292,52 @@ class SparseApplyRMSPropOp : public OpKernel {
     const Tensor& epsilon = ctx->input(6);
     const Tensor& grad = ctx->input(7);
     const Tensor& indices = ctx->input(8);
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(rho.shape()),
-                errors::InvalidArgument("rho is not a scalar: ",
-                                        rho.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "rho is not a scalar: ", rho.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     OP_REQUIRES(ctx, var.shape().IsSameSize(ms.shape()),
-                errors::InvalidArgument("var and ms do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        ms.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and ms do not have the same shape",
+                    var.shape().DebugString(), " ", ms.shape().DebugString())));
 
-    OP_REQUIRES(ctx, var.shape().IsSameSize(mom.shape()),
-                errors::InvalidArgument(
-                    "var and mom do not have the same shape",
-                    var.shape().DebugString(), " ", mom.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, var.shape().IsSameSize(mom.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and mom do not have the same shape", var.shape().DebugString(),
+            " ", mom.shape().DebugString())));
 
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
     for (int d = 1; d < var.dims(); d++) {
-      OP_REQUIRES(
-          ctx, var.dim_size(d) == grad.dim_size(d),
-          errors::InvalidArgument("var and grad must match in dimension ", d));
+      OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
+                  absl::InvalidArgumentError(absl::StrCat(
+                      "var and grad must match in dimension ", d)));
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     if (N > 0) {
@@ -4296,50 +4432,57 @@ class SparseApplyCenteredRMSPropOp : public OpKernel {
     const Tensor& epsilon = ctx->input(7);
     const Tensor& grad = ctx->input(8);
     const Tensor& indices = ctx->input(9);
+    OP_REQUIRES(ctx, grad.dims() == var.dims(),
+                absl::InvalidArgumentError("grad must have the same number of "
+                                           "dimensions as var"));
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(rho.shape()),
-                errors::InvalidArgument("rho is not a scalar: ",
-                                        rho.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(momentum.shape()),
-                errors::InvalidArgument("momentum is not a scalar: ",
-                                        momentum.shape().DebugString()));
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
-                errors::InvalidArgument("epsilon is not a scalar: ",
-                                        epsilon.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "rho is not a scalar: ", rho.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(momentum.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "momentum is not a scalar: ", momentum.shape().DebugString())));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(epsilon.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "epsilon is not a scalar: ", epsilon.shape().DebugString())));
 
     OP_REQUIRES(ctx, var.shape().IsSameSize(mg.shape()),
-                errors::InvalidArgument("var and mg do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        mg.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and mg do not have the same shape",
+                    var.shape().DebugString(), " ", mg.shape().DebugString())));
 
     OP_REQUIRES(ctx, var.shape().IsSameSize(ms.shape()),
-                errors::InvalidArgument("var and ms do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        ms.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and ms do not have the same shape",
+                    var.shape().DebugString(), " ", ms.shape().DebugString())));
 
-    OP_REQUIRES(ctx, var.shape().IsSameSize(mom.shape()),
-                errors::InvalidArgument(
-                    "var and mom do not have the same shape",
-                    var.shape().DebugString(), " ", mom.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, var.shape().IsSameSize(mom.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and mom do not have the same shape", var.shape().DebugString(),
+            " ", mom.shape().DebugString())));
 
-    OP_REQUIRES(ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
-                errors::InvalidArgument("var must be at least 1 dimensional"));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsVectorOrHigher(var.shape()),
+        absl::InvalidArgumentError("var must be at least 1 dimensional"));
 
     OP_REQUIRES(ctx, TensorShapeUtils::IsVector(indices.shape()),
-                errors::InvalidArgument("indices must be one-dimensional"));
+                absl::InvalidArgumentError("indices must be one-dimensional"));
 
     for (int d = 1; d < var.dims(); d++) {
-      OP_REQUIRES(
-          ctx, var.dim_size(d) == grad.dim_size(d),
-          errors::InvalidArgument("var and grad must match in dimension ", d));
+      OP_REQUIRES(ctx, var.dim_size(d) == grad.dim_size(d),
+                  absl::InvalidArgumentError(absl::StrCat(
+                      "var and grad must match in dimension ", d)));
     }
     const Tindex N = indices.dim_size(0);
     OP_REQUIRES(
         ctx, grad.dim_size(0) == N,
-        errors::InvalidArgument(
+        absl::InvalidArgumentError(
             "grad must be the same size as indices in the first dimension."));
 
     if (N > 0) {
@@ -4414,16 +4557,16 @@ class SparseApplyCenteredRMSPropOp : public OpKernel {
                               .TypeConstraint<Tindices>("Tindices"),  \
                           SparseApplyCenteredRMSPropOp<T, Tindices>);
 
-REGISTER_KERNELS(Eigen::half, int32);
-REGISTER_KERNELS(Eigen::half, int64);
-REGISTER_KERNELS(float, int32);
-REGISTER_KERNELS(float, int64);
-REGISTER_KERNELS(double, int32);
-REGISTER_KERNELS(double, int64);
-REGISTER_KERNELS(complex64, int32);
-REGISTER_KERNELS(complex64, int64);
-REGISTER_KERNELS(complex128, int32);
-REGISTER_KERNELS(complex128, int64);
+REGISTER_KERNELS(Eigen::half, int32_t);
+REGISTER_KERNELS(Eigen::half, int64_t);
+REGISTER_KERNELS(float, int32_t);
+REGISTER_KERNELS(float, int64_t);
+REGISTER_KERNELS(double, int32_t);
+REGISTER_KERNELS(double, int64_t);
+REGISTER_KERNELS(complex64, int32_t);
+REGISTER_KERNELS(complex64, int64_t);
+REGISTER_KERNELS(complex128, int32_t);
+REGISTER_KERNELS(complex128, int64_t);
 
 #undef REGISTER_KERNELS
 
@@ -4455,30 +4598,31 @@ class ApplyAddSignOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& alpha = ctx->input(3);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(alpha.shape()),
-                errors::InvalidArgument("alpha is not a scalar: ",
-                                        alpha.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "alpha is not a scalar: ", alpha.shape().DebugString())));
     const Tensor& sign_decay = ctx->input(4);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(alpha.shape()),
-                errors::InvalidArgument("sign_decay is not a scalar: ",
-                                        sign_decay.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(alpha.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "sign_decay is not a scalar: ", sign_decay.shape().DebugString())));
     const Tensor& beta = ctx->input(5);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta.shape()),
-                errors::InvalidArgument("beta is not a scalar: ",
-                                        beta.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta is not a scalar: ", beta.shape().DebugString())));
     const Tensor& grad = ctx->input(6);
     OP_REQUIRES(ctx, var.shape().IsSameSize(m.shape()),
-                errors::InvalidArgument("var and m do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        m.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and m do not have the same shape",
+                    var.shape().DebugString(), " ", m.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyAddSign<Device, T>()(
@@ -4562,30 +4706,32 @@ class ApplyPowerSignOp : public OpKernel {
             "Attempting to use uninitialized variables: ", requested_input(1)));
     const Tensor& lr = ctx->input(2);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(lr.shape()),
-                errors::InvalidArgument("lr is not a scalar: ",
-                                        lr.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "lr is not a scalar: ", lr.shape().DebugString())));
     const Tensor& logbase = ctx->input(3);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(logbase.shape()),
-                errors::InvalidArgument("logbase is not a scalar: ",
-                                        logbase.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(logbase.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "logbase is not a scalar: ", logbase.shape().DebugString())));
     const Tensor& sign_decay = ctx->input(4);
-    OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(logbase.shape()),
-                errors::InvalidArgument("sign_decay is not a scalar: ",
-                                        sign_decay.shape().DebugString()));
+    OP_REQUIRES(
+        ctx, TensorShapeUtils::IsScalar(logbase.shape()),
+        absl::InvalidArgumentError(absl::StrCat(
+            "sign_decay is not a scalar: ", sign_decay.shape().DebugString())));
     const Tensor& beta = ctx->input(5);
     OP_REQUIRES(ctx, TensorShapeUtils::IsScalar(beta.shape()),
-                errors::InvalidArgument("beta is not a scalar: ",
-                                        beta.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "beta is not a scalar: ", beta.shape().DebugString())));
     const Tensor& grad = ctx->input(6);
     OP_REQUIRES(ctx, var.shape().IsSameSize(m.shape()),
-                errors::InvalidArgument("var and m do not have the same shape",
-                                        var.shape().DebugString(), " ",
-                                        m.shape().DebugString()));
+                absl::InvalidArgumentError(absl::StrCat(
+                    "var and m do not have the same shape",
+                    var.shape().DebugString(), " ", m.shape().DebugString())));
     OP_REQUIRES(
         ctx, var.shape().IsSameSize(grad.shape()),
-        errors::InvalidArgument("var and grad do not have the same shape",
-                                var.shape().DebugString(), " ",
-                                grad.shape().DebugString()));
+        absl::InvalidArgumentError(absl::StrCat(
+            "var and grad do not have the same shape",
+            var.shape().DebugString(), " ", grad.shape().DebugString())));
 
     const Device& device = ctx->template eigen_device<Device>();
     functor::ApplyPowerSign<Device, T>()(
